@@ -4,7 +4,8 @@ export interface Env {
 	DEBUG_KEY: string;
 }
 
-const slackChannel = "#pact-verifications";
+// const slackChannel = "#pact-verifications";
+const slackChannel = "#ci";
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
@@ -206,8 +207,19 @@ async function slackPost(env: Env, body: Record<string, any>) {
 		},
 		body: JSON.stringify(body),
 	});
-	const json = await res.json();
-	if (!json.ok) console.error("Slack error", json);
+	const json = await res.json() as any;
+	if (!json.ok) {
+		console.error("❌ Slack API Error:", {
+			error: json.error,
+			needed: json.needed,
+			provided: json.provided,
+			channel: body.channel,
+			hasThreadTs: !!body.thread_ts,
+			messageLength: body.text?.length
+		});
+	} else {
+		console.log("✅ Slack message sent successfully", { ts: json.ts, channel: body.channel });
+	}
 	return json;
 }
 

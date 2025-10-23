@@ -1,3 +1,17 @@
+## Deploy
+
+```
+wrangler deploy
+```
+
+## Watch logs
+
+```
+wrangler tail pact-slack-aggregator
+```
+
+## Test sending a payload
+
 ```
 curl -X POST https://psa.workers.dev/ \
   -H "Content-Type: application/json" \
