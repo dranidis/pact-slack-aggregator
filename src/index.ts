@@ -182,18 +182,20 @@ async function postSummaryToSlack(env: Env, events: any[]) {
 
 		const summaryTs = summaryResp.ts;
 
-		// Post thread details
+		// Build single thread reply with all details
+		let threadDetails = "";
+
 		for (const e of publications) {
-			const detail = `Published contract: <${e.pactUrl}|contract-details> for *${e.provider}* ${e.providerVersionBranch || ""
-				}`;
-			await slackPost(env, { text: detail, channel: slackChannel, thread_ts: summaryTs });
+			threadDetails += `Published contract: <${e.pactUrl}|contract-details> for *${e.provider}* ${e.providerVersionBranch || ""}\n`;
 		}
 
 		for (const e of verifications) {
-			const detail = `*${e.consumer}* ${e.consumerVersionBranch || ""}: ${e.status === "success" ? "✅" : "❌"
-				} <${e.resultUrl}|Details>`;
-			await slackPost(env, { text: detail, channel: slackChannel, thread_ts: summaryTs });
-			await new Promise((r) => setTimeout(r, 100));
+			threadDetails += `*${e.consumer}* ${e.consumerVersionBranch || ""}: ${e.status === "success" ? "✅" : "❌"} <${e.resultUrl}|Details>\n`;
+		}
+
+		// Send single thread reply if there are any details
+		if (threadDetails.trim()) {
+			await slackPost(env, { text: threadDetails.trim(), channel: slackChannel, thread_ts: summaryTs });
 		}
 	}
 }
