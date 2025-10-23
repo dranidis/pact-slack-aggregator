@@ -4,8 +4,26 @@ export interface Env {
 	DEBUG_KEY: string;
 }
 
+interface WebhookPayload {
+	eventType: string;
+	providerName: string;
+	consumerName: string;
+	verificationResultUrl?: string;
+	pactUrl?: string;
+	githubVerificationStatus?: string;
+	consumerVersionBranch?: string;
+	providerVersionBranch?: string;
+	consumerVersionNumber?: string;
+	providerVersionNumber?: string;
+}
+
 // const slackChannel = "#pact-verifications";
 const slackChannel = "#ci";
+
+// Configuration constants
+const CACHE_TTL_SECONDS = 600; // 10 minutes
+const QUIET_PERIOD_MS = 60_000; // 60 seconds
+const MINUTE_BUCKET_MS = 60000; // 1 minute for event bucketing
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
@@ -23,6 +41,13 @@ export default {
 			});
 		}
 
+		// Manual trigger endpoint
+		if (url.pathname === "/trigger" && url.searchParams.get("key") === env.DEBUG_KEY) {
+			console.log("🔄 Manual trigger requested");
+			await processAllBatches(env);
+			return new Response("Processing completed", { status: 200 });
+		}
+
 		if (request.method !== "POST") {
 			return new Response("Method Not Allowed", { status: 405 });
 		}
@@ -30,7 +55,7 @@ export default {
 		await env.PACT_CACHE.put("lastEventTime", Date.now().toString());
 
 		try {
-			const payload = await request.json();
+			const payload = await request.json() as WebhookPayload;
 
 			const {
 				eventType,
@@ -41,12 +66,14 @@ export default {
 				githubVerificationStatus,
 				consumerVersionBranch,
 				providerVersionBranch,
+				consumerVersionNumber,
+				providerVersionNumber,
 			} = payload;
 
 			const pacticipant = getPacticipant(eventType, providerName, consumerName);
 
 			// Bucket by current minute
-			const minuteBucket = Math.floor(Date.now() / 60000);
+			const minuteBucket = Math.floor(Date.now() / MINUTE_BUCKET_MS);
 			const cacheKey = `pactEvents:${minuteBucket}`;
 
 			const eventsRaw = await env.PACT_CACHE.get(cacheKey);
@@ -62,15 +89,17 @@ export default {
 				pactUrl,
 				consumerVersionBranch,
 				providerVersionBranch,
+				consumerVersionNumber,
+				providerVersionNumber,
 				ts: Date.now(),
 			});
 
-			await env.PACT_CACHE.put(cacheKey, JSON.stringify(events), { expirationTtl: 600 });
+			await env.PACT_CACHE.put(cacheKey, JSON.stringify(events), { expirationTtl: CACHE_TTL_SECONDS });
 
 			return new Response("OK", { status: 200 });
 		} catch (err) {
 			console.error("Webhook processing error", err);
-			return new Response("OK", { status: 200 });
+			return new Response("Internal Server Error", { status: 500 });
 		}
 	},
 
@@ -78,7 +107,7 @@ export default {
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const lastEventTimeStr = await env.PACT_CACHE.get("lastEventTime");
 		const lastEventTime = lastEventTimeStr ? parseInt(lastEventTimeStr) : 0;
-		const quietPeriodMs = 60_000; // 60 seconds
+		const quietPeriodMs = QUIET_PERIOD_MS;
 		const now = Date.now();
 
 		console.log("🕒 Scheduled summary check at " + formatTime(now));
@@ -105,24 +134,8 @@ function getPacticipant(eventType: string, provider: string, consumer: string) {
 	}
 }
 
-// async function processAllBatches(env: Env) {
-// 	const list = await env.PACT_CACHE.list({ prefix: "pactEvents:" });
-// 	if (list.keys.length === 0) return;
-
-// 	let allEvents: any[] = [];
-// 	for (const key of list.keys) {
-// 		const eventsRaw = await env.PACT_CACHE.get(key.name);
-// 		if (!eventsRaw) continue;
-// 		const events = JSON.parse(eventsRaw);
-// 		allEvents = allEvents.concat(events);
-// 		await env.PACT_CACHE.delete(key.name);
-// 	}
-
-// 	await postSummaryToSlack(env, allEvents);
-// }
-
 async function processAllBatches(env: Env) {
-	const nowMinute = Math.floor(Date.now() / 60_000);
+	const nowMinute = Math.floor(Date.now() / MINUTE_BUCKET_MS);
 	const list = await env.PACT_CACHE.list({ prefix: "pactEvents:" });
 	if (list.keys.length === 0) return;
 
@@ -163,17 +176,26 @@ async function postSummaryToSlack(env: Env, events: any[]) {
 				? verifications[0].providerVersionBranch
 				: publications[0]?.consumerVersionBranch;
 
+		const commitHash =
+			verifications.length !== 0
+				? verifications[0].providerVersionNumber
+				: publications[0]?.consumerVersionNumber;
+
 		const ok = verifications.filter((e) => e.status === "success").length;
 		const fail = verifications.filter((e) => e.status !== "success").length;
 
 		const publicationSummary =
-			publications.length === 0 ? "" : `Pact publications: ${publications.length}`;
-		const okString = ok === 0 ? "" : `✅ ${ok}`;
-		const failString = fail === 0 ? "" : `❌ ${fail}`;
+			publications.length === 0 ? "" : `Pact publications: ${publications.length} `;
+		const okString = ok === 0 ? "" : `🟢${ok} `;
+		const failString = fail === 0 ? "" : `🔴${fail}`;
 		const verificationSummary =
-			verifications.length === 0 ? "" : " Pact verifications: " + okString + failString;
+			verifications.length === 0 ? "" : `Pact verifications: ${okString}${failString}`;
 
-		const summary = `*${pacticipant}* ${branch}\n${publicationSummary}${verificationSummary}`;
+		// Add GitHub link if commit hash exists
+		const githubLink = commitHash ? ` <https://github.com/yourorganization/${mapPacticipantToRepo(pacticipant)}/commit/${commitHash}|${commitHash.substring(0, 7)}>` : "";
+		// Make branch name clickable
+		const branchLink = branch ? `<https://github.com/yourorganization/${mapPacticipantToRepo(pacticipant)}/tree/${branch}|${branch}>` : "";
+		const summary = `*${pacticipant}* ${branchLink}${githubLink}\n${publicationSummary}${verificationSummary}`;
 
 		const summaryResp = await slackPost(env, {
 			text: summary,
@@ -186,11 +208,18 @@ async function postSummaryToSlack(env: Env, events: any[]) {
 		let threadDetails = "";
 
 		for (const e of publications) {
-			threadDetails += `Published contract: <${e.pactUrl}|contract-details> for *${e.provider}* ${e.providerVersionBranch || ""}\n`;
+			const providerVersionNumber = e.providerVersionNumber;
+			const providerGithubLink = providerVersionNumber ? ` <https://github.com/yourorganization/${mapPacticipantToRepo(e.provider)}/commit/${providerVersionNumber}|${providerVersionNumber.substring(0, 7)}>` : "";
+			const providerBranchLink = e.providerVersionBranch ? `<https://github.com/yourorganization/${mapPacticipantToRepo(e.provider)}/tree/${e.providerVersionBranch}|${e.providerVersionBranch}>` : "";
+			threadDetails += `Published <${e.pactUrl}|contract> for *${e.provider}* ${providerBranchLink}${providerGithubLink}\n`;
 		}
 
 		for (const e of verifications) {
-			threadDetails += `*${e.consumer}* ${e.consumerVersionBranch || ""}: ${e.status === "success" ? "✅" : "❌"} <${e.resultUrl}|Details>\n`;
+			const consumerVersionNumber = e.consumerVersionNumber;
+			const repo = mapPacticipantToRepo(e.consumer);
+			const githubCommitLink = consumerVersionNumber ? ` <https://github.com/yourorganization/${repo}/commit/${consumerVersionNumber}|${consumerVersionNumber.substring(0, 7)}>` : "";
+			const consumerBranchLink = e.consumerVersionBranch ? `<https://github.com/yourorganization/${repo}/tree/${e.consumerVersionBranch}|${e.consumerVersionBranch}>` : "";
+			threadDetails += `*${e.consumer}* ${consumerBranchLink}${githubCommitLink}: ${e.status === "success" ? "🟢" : "🔴"} <${e.resultUrl}|Details>\n`;
 		}
 
 		// Send single thread reply if there are any details
@@ -232,3 +261,19 @@ function formatTime(timestamp: number) {
 	const ss = String(date.getSeconds()).padStart(2, '0');
 	return `${hh}:${mm}:${ss}`;
 }
+function mapPacticipantToRepo(consumer: any) {
+	switch (consumer) {
+		case "Bo":
+		case "BoUI":
+			return "someback";
+		case "LaravelBonusEngine":
+			return "lbe";
+		case "SomeAPI":
+			return "someapi"
+		case "FrontEnd":
+			return "frontend"
+		default:
+			return consumer.toLowerCase();
+	}
+}
+
