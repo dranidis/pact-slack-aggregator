@@ -77,7 +77,7 @@ export default {
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const lastEventTimeStr = await env.PACT_CACHE.get("lastEventTime");
 		const lastEventTime = lastEventTimeStr ? parseInt(lastEventTimeStr) : 0;
-		const quietPeriodMs = 30_000; // 30 seconds
+		const quietPeriodMs = 60_000; // 60 seconds
 		const now = Date.now();
 
 		console.log("🕒 Scheduled summary check at " + formatTime(now));

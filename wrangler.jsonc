@@ -17,7 +17,7 @@
 		}
 	],
 	"triggers": {
-		"crons": ["*/1 * * * *"]
+		"crons": ["*/2 * * * *"] // Every 2 minutes
 	}
 
 	/**
