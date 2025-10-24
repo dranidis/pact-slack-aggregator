@@ -1,8 +1,10 @@
 export interface Env {
 	SLACK_TOKEN: string;
-	PACT_CACHE: KVNamespace;
+	PACT_AGGREGATOR: DurableObjectNamespace;
 	DEBUG_KEY: string;
 }
+
+export { PactAggregator } from './pact-aggregator';
 
 interface WebhookPayload {
 	eventType: string;
@@ -32,14 +34,10 @@ export default {
 
 		// Debug endpoint
 		if (url.pathname === "/debug" && url.searchParams.get("key") === env.DEBUG_KEY) {
-			const list = await env.PACT_CACHE.list({ prefix: "pactEvents:" });
-			const data: Record<string, any> = {};
-			for (const key of list.keys) {
-				data[key.name] = await env.PACT_CACHE.get(key.name);
-			}
-			return new Response(JSON.stringify(data, null, 2), {
-				headers: { "Content-Type": "application/json" },
-			});
+			const id = env.PACT_AGGREGATOR.idFromName("pact-events");
+			const stub = env.PACT_AGGREGATOR.get(id);
+			const response = await stub.fetch(new Request("http://fake-host/get-debug-info"));
+			return response;
 		}
 
 		// Manual trigger endpoint
@@ -54,8 +52,6 @@ export default {
 		}
 
 		// A POST request - process webhook from Pact
-		await env.PACT_CACHE.put("lastEventTime", Date.now().toString());
-
 		try {
 			const payload = await request.json() as WebhookPayload;
 
@@ -75,14 +71,11 @@ export default {
 
 			const pacticipant = getPacticipant(eventType, providerName, consumerName);
 
-			// Bucket by current minute
-			const minuteBucket = Math.floor(Date.now() / MINUTE_BUCKET_MS);
-			const cacheKey = `pactEvents:${minuteBucket}`;
+			// Send event to Durable Object
+			const id = env.PACT_AGGREGATOR.idFromName("pact-events");
+			const stub = env.PACT_AGGREGATOR.get(id);
 
-			const eventsRaw = await env.PACT_CACHE.get(cacheKey);
-			const events = eventsRaw ? JSON.parse(eventsRaw) : [];
-
-			events.push({
+			const eventData = {
 				pacticipant,
 				eventType,
 				provider: providerName,
@@ -95,10 +88,13 @@ export default {
 				consumerVersionNumber,
 				providerVersionNumber,
 				providerVersionDescriptions,
-				ts: Date.now(),
-			});
+			};
 
-			await env.PACT_CACHE.put(cacheKey, JSON.stringify(events), { expirationTtl: CACHE_TTL_SECONDS });
+			await stub.fetch(new Request("http://fake-host/add-event", {
+				method: "POST",
+				body: JSON.stringify(eventData),
+				headers: { "Content-Type": "application/json" }
+			}));
 
 			return new Response("OK", { status: 200 });
 		} catch (err) {
@@ -107,36 +103,12 @@ export default {
 		}
 	},
 
-	// Runs automatically every minute (Cloudflare Cron)
+	// Runs automatically every 2 minutes (Cloudflare Cron)
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		const lastEventTimeStr = await env.PACT_CACHE.get("lastEventTime");
-		const lastEventTime = lastEventTimeStr ? parseInt(lastEventTimeStr) : 0;
-
-		const lastProcessTimeStr = await env.PACT_CACHE.get("lastProcessTime");
-		const lastProcessTime = lastProcessTimeStr ? parseInt(lastProcessTimeStr) : 0;
-
-		const quietPeriodMs = QUIET_PERIOD_MS;
-		const maxWaitMs = 5 * 60 * 1000; // 5 minutes
 		const now = Date.now();
-
 		console.log("🕒 Scheduled summary check at " + formatTime(now));
-		console.log(" Last event time: " + formatTime(lastEventTime));
-		console.log(" Last process time: " + formatTime(lastProcessTime));
 
-		const timeSinceLastEvent = now - lastEventTime;
-		const timeSinceLastProcess = now - lastProcessTime;
-
-		// Skip quiet period check if 5 minutes have passed since last processing
-		if (lastEventTime && timeSinceLastEvent < quietPeriodMs && timeSinceLastProcess < maxWaitMs) {
-			console.log(` Skipping summary — events still incoming: ${timeSinceLastEvent / 1000}s since last event, ${timeSinceLastProcess / 1000}s since last process`);
-			return new Response("Skipped (still receiving events)", { status: 200 });
-		}
-
-		console.log("🕒 Processing summary — either quiet period passed or max wait time exceeded");
-
-		// Update last process time before processing
-		await env.PACT_CACHE.put("lastProcessTime", now.toString());
-
+		// Simply process batches - the Durable Object will handle timing logic
 		ctx.waitUntil(processAllBatches(env));
 	},
 };
@@ -155,27 +127,28 @@ function getPacticipant(eventType: string, provider: string, consumer: string) {
 }
 
 async function processAllBatches(env: Env) {
-	const nowMinute = Math.floor(Date.now() / MINUTE_BUCKET_MS);
-	const list = await env.PACT_CACHE.list({ prefix: "pactEvents:" });
-	if (list.keys.length === 0) return;
+	// Get Durable Object instance
+	const id = env.PACT_AGGREGATOR.idFromName("pact-events");
+	const stub = env.PACT_AGGREGATOR.get(id);
 
-	let allEvents: any[] = [];
-	for (const key of list.keys) {
-		const bucketMinute = parseInt(key.name.split(":")[1]);
-		if (bucketMinute === nowMinute) continue; // skip current active bucket
+	// Process batches through Durable Object
+	const response = await stub.fetch(new Request("http://fake-host/process-batches", {
+		method: "POST"
+	}));
 
-		const eventsRaw = await env.PACT_CACHE.get(key.name);
-		if (!eventsRaw) continue;
-
-		const events = JSON.parse(eventsRaw);
-		allEvents = allEvents.concat(events);
-
-		await env.PACT_CACHE.delete(key.name);
+	if (!response.ok) {
+		console.error("Failed to process batches:", response.statusText);
+		return;
 	}
 
-	await postSummaryToSlack(env, allEvents);
-}
+	const result = await response.json() as { processedEvents: any[], eventCount: number };
+	console.log(`Processing ${result.eventCount} events`);
 
+	// Send to Slack if we have events
+	if (result.processedEvents.length > 0) {
+		await postSummaryToSlack(env, result.processedEvents);
+	}
+}
 
 async function postSummaryToSlack(env: Env, events: any[]) {
 	if (events.length === 0) return;

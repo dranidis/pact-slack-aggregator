@@ -16,9 +16,23 @@
 			"id": "45f5f2e3db744d129b020aa466a3b287"
 		}
 	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "PACT_AGGREGATOR",
+				"class_name": "PactAggregator"
+			}
+		]
+	},
 	"triggers": {
 		"crons": ["*/2 * * * *"] // Every 2 minutes
-	}
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["PactAggregator"]
+		}
+	]
 
 	/**
 	 * Smart Placement
