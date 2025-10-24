@@ -15,6 +15,7 @@ interface WebhookPayload {
 	providerVersionBranch?: string;
 	consumerVersionNumber?: string;
 	providerVersionNumber?: string;
+	providerVersionDescriptions?: string;
 }
 
 // const slackChannel = "#pact-verifications";
@@ -52,6 +53,7 @@ export default {
 			return new Response("Method Not Allowed", { status: 405 });
 		}
 
+		// A POST request - process webhook from Pact
 		await env.PACT_CACHE.put("lastEventTime", Date.now().toString());
 
 		try {
@@ -68,6 +70,7 @@ export default {
 				providerVersionBranch,
 				consumerVersionNumber,
 				providerVersionNumber,
+				providerVersionDescriptions,
 			} = payload;
 
 			const pacticipant = getPacticipant(eventType, providerName, consumerName);
@@ -91,6 +94,7 @@ export default {
 				providerVersionBranch,
 				consumerVersionNumber,
 				providerVersionNumber,
+				providerVersionDescriptions,
 				ts: Date.now(),
 			});
 
@@ -128,6 +132,7 @@ function getPacticipant(eventType: string, provider: string, consumer: string) {
 		case "provider_verification_published":
 			return provider;
 		case "contract_content_changed":
+		case "contract_requiring_verification_published":
 			return consumer;
 		default:
 			return "unknown";
@@ -169,7 +174,8 @@ async function postSummaryToSlack(env: Env, events: any[]) {
 
 	for (const [pacticipant, evts] of Object.entries(grouped)) {
 		const verifications = evts.filter((e) => e.eventType === "provider_verification_published");
-		const publications = evts.filter((e) => e.eventType === "contract_content_changed");
+		const publications = evts.filter((e) =>
+			e.eventType === "contract_content_changed" || e.eventType === "contract_requiring_verification_published");
 
 		const branch =
 			verifications.length !== 0
@@ -208,10 +214,12 @@ async function postSummaryToSlack(env: Env, events: any[]) {
 		let threadDetails = "";
 
 		for (const e of publications) {
-			const providerVersionNumber = e.providerVersionNumber;
+			const description = e.providerVersionDescriptions ? ` - ${e.providerVersionDescriptions}` : "";
+			const providerVersionNumber = description !== "" ? e.providerVersionNumber : undefined;
+			const providerVersionBranch = description !== "" ? e.providerVersionBranch : undefined;
 			const providerGithubLink = providerVersionNumber ? ` <https://github.com/yourorganization/${mapPacticipantToRepo(e.provider)}/commit/${providerVersionNumber}|${providerVersionNumber.substring(0, 7)}>` : "";
-			const providerBranchLink = e.providerVersionBranch ? `<https://github.com/yourorganization/${mapPacticipantToRepo(e.provider)}/tree/${e.providerVersionBranch}|${e.providerVersionBranch}>` : "";
-			threadDetails += `Published <${e.pactUrl}|contract> for *${e.provider}* ${providerBranchLink}${providerGithubLink}\n`;
+			const providerBranchLink = providerVersionBranch ? `<https://github.com/yourorganization/${mapPacticipantToRepo(e.provider)}/tree/${providerVersionBranch}|${providerVersionBranch}>` : "";
+			threadDetails += `Published <${e.pactUrl}|contract> to be verified from *${e.provider}* ${providerBranchLink}${providerGithubLink}${description}\n`;
 		}
 
 		for (const e of verifications) {
