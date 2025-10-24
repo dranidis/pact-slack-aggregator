@@ -111,17 +111,32 @@ export default {
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const lastEventTimeStr = await env.PACT_CACHE.get("lastEventTime");
 		const lastEventTime = lastEventTimeStr ? parseInt(lastEventTimeStr) : 0;
+
+		const lastProcessTimeStr = await env.PACT_CACHE.get("lastProcessTime");
+		const lastProcessTime = lastProcessTimeStr ? parseInt(lastProcessTimeStr) : 0;
+
 		const quietPeriodMs = QUIET_PERIOD_MS;
+		const maxWaitMs = 5 * 60 * 1000; // 5 minutes
 		const now = Date.now();
 
 		console.log("🕒 Scheduled summary check at " + formatTime(now));
 		console.log(" Last event time: " + formatTime(lastEventTime));
-		if (lastEventTime && now - lastEventTime < quietPeriodMs) {
-			console.log(` Skipping summary — events still incoming: ${(now - lastEventTime) / 1000}s since last event`);
+		console.log(" Last process time: " + formatTime(lastProcessTime));
+
+		const timeSinceLastEvent = now - lastEventTime;
+		const timeSinceLastProcess = now - lastProcessTime;
+
+		// Skip quiet period check if 5 minutes have passed since last processing
+		if (lastEventTime && timeSinceLastEvent < quietPeriodMs && timeSinceLastProcess < maxWaitMs) {
+			console.log(` Skipping summary — events still incoming: ${timeSinceLastEvent / 1000}s since last event, ${timeSinceLastProcess / 1000}s since last process`);
 			return new Response("Skipped (still receiving events)", { status: 200 });
 		}
 
-		console.log("🕒 Quiet period passed — posting summary to Slack");
+		console.log("🕒 Processing summary — either quiet period passed or max wait time exceeded");
+
+		// Update last process time before processing
+		await env.PACT_CACHE.put("lastProcessTime", now.toString());
+
 		ctx.waitUntil(processAllBatches(env));
 	},
 };
