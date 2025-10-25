@@ -9,13 +9,47 @@ const MAX_TIME_BEFORE_FLUSHING = 5 * 60 * 1000; // 5 minutes in milliseconds
 export class PactAggregator {
 	private state: DurableObjectState;
 	private env: Env;
-	private events: Map<string, any[]> = new Map();
-	private lastEventTime: number = 0;
-	private lastProcessTime: number = 0;
 
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
 		this.env = env;
+	}
+
+	private async getLastEventTime(): Promise<number> {
+		return (await this.state.storage.get("lastEventTime") as number) || 0;
+	}
+
+	private async setLastEventTime(time: number): Promise<void> {
+		await this.state.storage.put("lastEventTime", time);
+	}
+
+	private async getLastProcessTime(): Promise<number> {
+		return (await this.state.storage.get("lastProcessTime") as number) || 0;
+	}
+
+	private async setLastProcessTime(time: number): Promise<void> {
+		await this.state.storage.put("lastProcessTime", time);
+	}
+
+	private async getEvents(): Promise<Map<string, any[]>> {
+		const storedEvents = await this.state.storage.get("events") as Record<string, any[]>;
+		return storedEvents ? new Map(Object.entries(storedEvents)) : new Map();
+	}
+
+	private async setEvents(events: Map<string, any[]>): Promise<void> {
+		await this.state.storage.put("events", Object.fromEntries(events));
+	}
+
+	private async getProcessingStats(): Promise<{ totalProcessed: number; lastProcessedCount: number }> {
+		const totalProcessed = (await this.state.storage.get("totalProcessed") as number) || 0;
+		const lastProcessedCount = (await this.state.storage.get("lastProcessedCount") as number) || 0;
+		return { totalProcessed, lastProcessedCount };
+	}
+
+	private async updateProcessingStats(processedCount: number): Promise<void> {
+		const currentTotal = (await this.state.storage.get("totalProcessed") as number) || 0;
+		await this.state.storage.put("totalProcessed", currentTotal + processedCount);
+		await this.state.storage.put("lastProcessedCount", processedCount);
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -35,32 +69,29 @@ export class PactAggregator {
 
 	private async addEvent(request: Request): Promise<Response> {
 		try {
-			// Load existing state first
-			await this.loadState();
-
 			const event = await request.json() as any;
-
-			// Update last event time
-			this.lastEventTime = Date.now();
+			const now = Date.now();
 
 			// Create bucket key (1-minute buckets)
-			const minuteBucket = Math.floor(this.lastEventTime / MINUTE_BUCKET_MS);
+			const minuteBucket = Math.floor(now / MINUTE_BUCKET_MS);
 			const bucketKey = `events:${minuteBucket}`;
 
+			// Get existing events
+			const events = await this.getEvents();
+
 			// Get existing events for this bucket
-			if (!this.events.has(bucketKey)) {
-				this.events.set(bucketKey, []);
+			if (!events.has(bucketKey)) {
+				events.set(bucketKey, []);
 			}
 
 			// Add event to bucket
-			this.events.get(bucketKey)!.push({
+			events.get(bucketKey)!.push({
 				...event,
-				ts: this.lastEventTime
+				ts: now
 			});
 
-			// Persist both lastEventTime and updated events
-			await this.state.storage.put("lastEventTime", this.lastEventTime);
-			await this.state.storage.put("events", Object.fromEntries(this.events));
+			await this.setLastEventTime(now);
+			await this.setEvents(events);
 
 			return new Response("Event added", { status: 200 });
 
@@ -72,14 +103,12 @@ export class PactAggregator {
 
 	private async processBatches(request: Request): Promise<Response> {
 		try {
-			await this.loadTimes();
-
 			const now = Date.now();
 			const currentMinute = Math.floor(now / MINUTE_BUCKET_MS);
 
 			// Check timing constraints before processing
-			const timeSinceLastEvent = now - this.lastEventTime;
-			const timeSinceLastProcess = now - this.lastProcessTime;
+			const timeSinceLastEvent = now - await this.getLastEventTime();
+			const timeSinceLastProcess = now - await this.getLastProcessTime();
 
 			// Don't process if within quiet period unless 5 minutes have passed since last process
 			if (timeSinceLastEvent < QUIET_PERIOD_MS && timeSinceLastProcess < MAX_TIME_BEFORE_FLUSHING) {
@@ -98,31 +127,30 @@ export class PactAggregator {
 			let allEvents: any[] = [];
 			const bucketsToDelete: string[] = [];
 
-			await this.loadEvents();
+			// Get current events
+			const events = await this.getEvents();
 
 			// Process all buckets except current minute
-			for (const [bucketKey, events] of this.events.entries()) {
+			for (const [bucketKey, eventList] of events.entries()) {
 				const bucketMinute = parseInt(bucketKey.split(":")[1]);
 
 				if (bucketMinute !== currentMinute) {
-					allEvents = allEvents.concat(events);
+					allEvents = allEvents.concat(eventList);
 					bucketsToDelete.push(bucketKey);
 				}
 			}
 
 			// Remove processed buckets
 			for (const key of bucketsToDelete) {
-				this.events.delete(key);
+				events.delete(key);
 			}
 
-			// Update last process time
-			this.lastProcessTime = now;
-
 			// Persist updated state
-			await this.state.storage.put("lastProcessTime", this.lastProcessTime);
+			await this.setLastProcessTime(now);
 
 			if (bucketsToDelete.length > 0) {
-				await this.state.storage.put("events", Object.fromEntries(this.events));
+				await this.setEvents(events);
+				await this.updateProcessingStats(allEvents.length);
 
 				console.log(`Processed ${allEvents.length} events from ${bucketsToDelete.length} buckets`);
 			}
@@ -142,18 +170,25 @@ export class PactAggregator {
 	}
 
 	private async getDebugInfo(): Promise<Response> {
-		await this.loadState();
+		const lastEventTime = await this.getLastEventTime();
+		const lastProcessTime = await this.getLastProcessTime();
+		const events = await this.getEvents();
+		const { totalProcessed, lastProcessedCount } = await this.getProcessingStats();
 
 		const debugData = {
-			lastEventTime: this.lastEventTime,
-			lastProcessTime: this.lastProcessTime,
+			lastEventTime,
+			lastProcessTime,
 			eventBuckets: Object.fromEntries(
-				Array.from(this.events.entries()).map(([key, events]) => [
+				Array.from(events.entries()).map(([key, eventList]) => [
 					key,
-					{ count: events.length, events }
+					{ count: eventList.length, events: eventList }
 				])
 			),
-			totalEvents: Array.from(this.events.values()).reduce((sum, events) => sum + events.length, 0)
+			totalEvents: Array.from(events.values()).reduce((sum, eventList) => sum + eventList.length, 0),
+			totalProcessedEvents: totalProcessed,
+			lastProcessedCount,
+			timeSinceLastEvent: lastEventTime > 0 ? Date.now() - lastEventTime : null,
+			timeSinceLastProcess: lastProcessTime > 0 ? Date.now() - lastProcessTime : null
 		};
 
 		return new Response(JSON.stringify(debugData, null, 2), {
@@ -161,29 +196,5 @@ export class PactAggregator {
 		});
 	}
 
-	private async loadState(): Promise<void> {
-		this.loadTimes();
-		this.loadEvents();
-	}
 
-	private async loadEvents(): Promise<void> {
-		const storedEvents = await this.state.storage.get("events") as Record<string, any[]>;
-
-		if (storedEvents) {
-			this.events = new Map(Object.entries(storedEvents));
-		}
-	}
-
-	private async loadTimes(): Promise<void> {
-		const storedLastEventTime = await this.state.storage.get("lastEventTime") as number;
-		const storedLastProcessTime = await this.state.storage.get("lastProcessTime") as number;
-
-		if (storedLastEventTime) {
-			this.lastEventTime = storedLastEventTime;
-		}
-
-		if (storedLastProcessTime) {
-			this.lastProcessTime = storedLastProcessTime;
-		}
-	}
 }
