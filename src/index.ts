@@ -12,9 +12,10 @@ export default {
 
 		// Debug endpoint
 		if (url.pathname === "/debug" && url.searchParams.get("key") === env.DEBUG_KEY) {
-			const stub = getPactAggregatorStub(env);
-			const response = await stub.fetch(new Request("http://fake-host/get-debug-info"));
-			return response;
+			const debugData = await getPactAggregatorStub(env).getDebugInfo();
+			return new Response(JSON.stringify(debugData, null, 2), {
+				headers: { "Content-Type": "application/json" }
+			});
 		}
 
 		// Manual trigger endpoint
@@ -61,12 +62,7 @@ export default {
 				providerVersionDescriptions,
 			};
 
-			const stub = getPactAggregatorStub(env);
-			await stub.fetch(new Request("http://fake-host/add-event", {
-				method: "POST",
-				body: JSON.stringify(eventData),
-				headers: { "Content-Type": "application/json" }
-			}));
+			await getPactAggregatorStub(env).addEvent(eventData);
 
 			return new Response("OK", { status: 200 });
 		} catch (err) {
@@ -97,21 +93,10 @@ function getPacticipant(eventType: string, provider: string, consumer: string) {
 }
 
 async function processAllBatches(env: Env) {
-	const stub = getPactAggregatorStub(env);
-	const response = await stub.fetch(new Request("http://fake-host/process-batches", {
-		method: "POST"
-	}));
+	const processedEvents: StoredPactEvent[] = await getPactAggregatorStub(env).processBatches();
 
-	if (!response.ok) {
-		console.error("Failed to process batches:", response.statusText);
-		return;
-	}
-
-	const result = await response.json() as { processedEvents: StoredPactEvent[], eventCount: number };
-
-	// Send to Slack if we have events
-	if (result.processedEvents.length > 0) {
-		await postSummaryToSlack(env, result.processedEvents);
+	if (processedEvents.length > 0) {
+		await postSummaryToSlack(env, processedEvents);
 	}
 }
 
@@ -234,9 +219,10 @@ function createGithubLinks(participant: string, branch?: string, commitHash?: st
 	};
 }
 
-function getPactAggregatorStub(env: Env): DurableObjectStub {
-	const id = env.PACT_AGGREGATOR.idFromName("pact-events");
-	return env.PACT_AGGREGATOR.get(id);
+function getPactAggregatorStub(env: Env) {
+	// const id = env.PACT_AGGREGATOR.idFromName("pact-events");
+	const stub = env.PACT_AGGREGATOR.getByName("pact-events");
+	return stub;
 }
 
 function mapPacticipantToRepo(consumer: any) {

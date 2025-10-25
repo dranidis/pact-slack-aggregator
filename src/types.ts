@@ -1,7 +1,7 @@
 export interface Env {
 	SLACK_CHANNEL: string;
 	SLACK_TOKEN: string;
-	PACT_AGGREGATOR: DurableObjectNamespace;
+	PACT_AGGREGATOR: DurableObjectNamespace<import('./pact-aggregator').PactAggregator>;
 	DEBUG_KEY: string;
 }
 
