@@ -1,8 +1,31 @@
+# A cloudflare worker for aggregating pact broker events sent by pact-broker webhooks
+
+## Description
+
+This application is a Cloudflare Worker designed to aggregate events from the company's Pact Broker. It processes webhook events, organizes them, and posts summaries to a specified Slack channel. The application leverages Durable Objects for stateful event aggregation and provides endpoints for debugging and manual processing.
+
+### Timing Details
+
+- **Quiet Period**: Events are aggregated over a quiet period of 10 seconds to ensure batching of related events.
+- **Event Bucketing**: Events are grouped into 1-minute buckets for efficient processing.
+- **Flushing Interval**: Events are flushed and processed if they remain unprocessed for more than 5 minutes.
+
 ## Deploy
 
 ```
 wrangler deploy
 ```
+
+## Set slack token
+
+The only action needed to change the slack workspace (e.g. BA Trigonon or Test templates) to which the messages are being sent is:
+
+```
+wrangler secret put SLACK_TOKEN
+```
+
+This is the Bot User OAuth Token found at OAuth & Permissions at https://api.slack.com/apps
+e.g. `xoxb-......................`
 
 ## Watch logs
 
@@ -10,18 +33,23 @@ wrangler deploy
 wrangler tail pact-slack-aggregator
 ```
 
-## Test sending a payload
+## Debug
 
 ```
-curl -X POST https://psa.workers.dev/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "provider_verification_published",
-    "providerName": "APIx",
-    "githubVerificationStatus": "success",
-    "verificationResultUrl": "https://example.com/101",
-    "consumerName": "UIx1",
-    "consumerVersionBranch": "feature/x",
-    "providerVersionBranch": "master"
-  }'
+curl https://psa.workers.dev/debug\?key\=DEBUG_KEY
 ```
+
+## List existing webhooks
+
+```
+curl -X GET https://pactbrokerurl.com/webhooks
+```
+
+## Install/update webhooks
+
+In folder `pact-broker-webhooks`
+
+- optionally edit the json files for any changes (e.g. disable)
+- change the `PUT` to `POST` in `update_new_webhooks.sh` for creation.
+- execute the `create_new_webhooks` for creation
+- execute the `update_new_webhooks.sh` for updating existing webhooks (change the UUID of the webhook at the end of the link)

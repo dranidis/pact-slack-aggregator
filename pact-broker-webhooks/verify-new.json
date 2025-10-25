@@ -1,0 +1,27 @@
+{
+	"description": "Aggr: Slack pact verification result",
+	"enabled": true,
+	"request": {
+		"method": "POST",
+		"url": "https://psa.workers.dev/",
+		"headers": {
+			"content-type": "application/json"
+		},
+		"body": {
+			"eventType": "provider_verification_published",
+			"providerName": "${pactbroker.providerName}",
+			"githubVerificationStatus": "${pactbroker.githubVerificationStatus}",
+			"verificationResultUrl": "${pactbroker.verificationResultUrl}",
+			"consumerName": "${pactbroker.consumerName}",
+			"consumerVersionBranch": "${pactbroker.consumerVersionBranch}",
+			"providerVersionBranch": "${pactbroker.providerVersionBranch}",
+			"consumerVersionNumber": "${pactbroker.consumerVersionNumber}",
+			"providerVersionNumber": "${pactbroker.providerVersionNumber}"
+		}
+	},
+	"events": [
+		{
+			"name": "provider_verification_published"
+		}
+	]
+}

@@ -2,9 +2,6 @@
 import type { Env, WebhookPayload, PactEventData, StoredPactEvent } from './types';
 export { PactAggregator } from './pact-aggregator';
 
-// const slackChannel = "#pact-verifications";
-const slackChannel = "#ci";
-
 // Emoji constants
 const SUCCESS_EMOJI = "✅";
 const FAILURE_EMOJI = "💥";
@@ -119,6 +116,8 @@ async function processAllBatches(env: Env) {
 }
 
 async function postSummaryToSlack(env: Env, events: StoredPactEvent[]) {
+	const slackChannel = env.SLACK_CHANNEL || "#pact-broker";
+
 	if (events.length === 0) return;
 
 	// Group events by pacticipant

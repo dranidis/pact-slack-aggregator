@@ -165,3 +165,6 @@ dist
 .env*
 !.env.example
 .wrangler/
+
+
+bot-tokens.txt

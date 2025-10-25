@@ -10,6 +10,9 @@
 	"observability": {
 		"enabled": true
 	},
+	"vars": {
+		"SLACK_CHANNEL": "#ci"
+	},
 	"kv_namespaces": [
 		{
 			"binding": "PACT_CACHE",

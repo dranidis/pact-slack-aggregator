@@ -1,4 +1,5 @@
 export interface Env {
+	SLACK_CHANNEL: string;
 	SLACK_TOKEN: string;
 	PACT_AGGREGATOR: DurableObjectNamespace;
 	DEBUG_KEY: string;
