@@ -72,8 +72,7 @@ export class PactAggregator {
 
 	private async processBatches(request: Request): Promise<Response> {
 		try {
-			// Load state if not already loaded
-			await this.loadState();
+			await this.loadTimes();
 
 			const now = Date.now();
 			const currentMinute = Math.floor(now / MINUTE_BUCKET_MS);
@@ -99,6 +98,8 @@ export class PactAggregator {
 			let allEvents: any[] = [];
 			const bucketsToDelete: string[] = [];
 
+			await this.loadEvents();
+
 			// Process all buckets except current minute
 			for (const [bucketKey, events] of this.events.entries()) {
 				const bucketMinute = parseInt(bucketKey.split(":")[1]);
@@ -119,9 +120,12 @@ export class PactAggregator {
 
 			// Persist updated state
 			await this.state.storage.put("lastProcessTime", this.lastProcessTime);
-			await this.state.storage.put("events", Object.fromEntries(this.events));
 
-			console.log(`Processed ${allEvents.length} events from ${bucketsToDelete.length} buckets`);
+			if (bucketsToDelete.length > 0) {
+				await this.state.storage.put("events", Object.fromEntries(this.events));
+
+				console.log(`Processed ${allEvents.length} events from ${bucketsToDelete.length} buckets`);
+			}
 
 			return new Response(JSON.stringify({
 				processedEvents: allEvents,
@@ -158,10 +162,21 @@ export class PactAggregator {
 	}
 
 	private async loadState(): Promise<void> {
-		// Load state from durable object storage
+		this.loadTimes();
+		this.loadEvents();
+	}
+
+	private async loadEvents(): Promise<void> {
+		const storedEvents = await this.state.storage.get("events") as Record<string, any[]>;
+
+		if (storedEvents) {
+			this.events = new Map(Object.entries(storedEvents));
+		}
+	}
+
+	private async loadTimes(): Promise<void> {
 		const storedLastEventTime = await this.state.storage.get("lastEventTime") as number;
 		const storedLastProcessTime = await this.state.storage.get("lastProcessTime") as number;
-		const storedEvents = await this.state.storage.get("events") as Record<string, any[]>;
 
 		if (storedLastEventTime) {
 			this.lastEventTime = storedLastEventTime;
@@ -169,10 +184,6 @@ export class PactAggregator {
 
 		if (storedLastProcessTime) {
 			this.lastProcessTime = storedLastProcessTime;
-		}
-
-		if (storedEvents) {
-			this.events = new Map(Object.entries(storedEvents));
 		}
 	}
 }
