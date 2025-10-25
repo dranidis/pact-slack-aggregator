@@ -20,7 +20,6 @@ export default {
 
 		// Manual trigger endpoint
 		if (url.pathname === "/trigger" && url.searchParams.get("key") === env.DEBUG_KEY) {
-			console.log("🔄 Manual trigger requested");
 			await processAllBatches(env);
 			return new Response("Processing completed", { status: 200 });
 		}
@@ -78,7 +77,6 @@ export default {
 		ctx.waitUntil(processAllBatches(env));
 	},
 };
-// --- Helper functions ---
 
 function getPacticipant(eventType: string, provider: string, consumer: string) {
 	switch (eventType) {
