@@ -1,4 +1,4 @@
-import type { Env } from './index';
+import type { Env, PactEventData, StoredPactEvent } from './types';
 
 // Configuration constants
 const QUIET_PERIOD_MS = 10_000; // 10 seconds
@@ -31,12 +31,12 @@ export class PactAggregator {
 		await this.state.storage.put("lastProcessTime", time);
 	}
 
-	private async getEvents(): Promise<Map<string, any[]>> {
-		const storedEvents = await this.state.storage.get("events") as Record<string, any[]>;
+	private async getEvents(): Promise<Map<string, StoredPactEvent[]>> {
+		const storedEvents = await this.state.storage.get("events") as Record<string, StoredPactEvent[]>;
 		return storedEvents ? new Map(Object.entries(storedEvents)) : new Map();
 	}
 
-	private async setEvents(events: Map<string, any[]>): Promise<void> {
+	private async setEvents(events: Map<string, StoredPactEvent[]>): Promise<void> {
 		await this.state.storage.put("events", Object.fromEntries(events));
 	}
 
@@ -69,7 +69,7 @@ export class PactAggregator {
 
 	private async addEvent(request: Request): Promise<Response> {
 		try {
-			const event = await request.json() as any;
+			const event = await request.json() as PactEventData;
 			const now = Date.now();
 
 			// Create bucket key (1-minute buckets)
@@ -88,7 +88,7 @@ export class PactAggregator {
 			events.get(bucketKey)!.push({
 				...event,
 				ts: now
-			});
+			} as StoredPactEvent);
 
 			await this.setLastEventTime(now);
 			await this.setEvents(events);
@@ -124,7 +124,7 @@ export class PactAggregator {
 				});
 			}
 
-			let allEvents: any[] = [];
+			let allEvents: StoredPactEvent[] = [];
 			const bucketsToDelete: string[] = [];
 
 			// Get current events
@@ -179,7 +179,7 @@ export class PactAggregator {
 			lastEventTime,
 			lastProcessTime,
 			eventBuckets: Object.fromEntries(
-				Array.from(events.entries()).map(([key, eventList]) => [
+				Array.from(events.entries()).map(([key, eventList]: [string, StoredPactEvent[]]) => [
 					key,
 					{ count: eventList.length, events: eventList }
 				])

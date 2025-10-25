@@ -1,24 +1,6 @@
-export interface Env {
-	SLACK_TOKEN: string;
-	PACT_AGGREGATOR: DurableObjectNamespace;
-	DEBUG_KEY: string;
-}
 
+import type { Env, WebhookPayload, PactEventData, StoredPactEvent } from './types';
 export { PactAggregator } from './pact-aggregator';
-
-interface WebhookPayload {
-	eventType: string;
-	providerName: string;
-	consumerName: string;
-	verificationResultUrl?: string;
-	pactUrl?: string;
-	githubVerificationStatus?: string;
-	consumerVersionBranch?: string;
-	providerVersionBranch?: string;
-	consumerVersionNumber?: string;
-	providerVersionNumber?: string;
-	providerVersionDescriptions?: string;
-}
 
 // const slackChannel = "#pact-verifications";
 const slackChannel = "#ci";
@@ -33,8 +15,7 @@ export default {
 
 		// Debug endpoint
 		if (url.pathname === "/debug" && url.searchParams.get("key") === env.DEBUG_KEY) {
-			const id = env.PACT_AGGREGATOR.idFromName("pact-events");
-			const stub = env.PACT_AGGREGATOR.get(id);
+			const stub = getPactAggregatorStub(env);
 			const response = await stub.fetch(new Request("http://fake-host/get-debug-info"));
 			return response;
 		}
@@ -52,8 +33,6 @@ export default {
 
 		// A POST request - process webhook from Pact
 		try {
-			const payload = await request.json() as WebhookPayload;
-
 			const {
 				eventType,
 				providerName,
@@ -66,15 +45,11 @@ export default {
 				consumerVersionNumber,
 				providerVersionNumber,
 				providerVersionDescriptions,
-			} = payload;
+			} = await request.json() as WebhookPayload;
 
 			const pacticipant = getPacticipant(eventType, providerName, consumerName);
 
-			// Send event to Durable Object
-			const id = env.PACT_AGGREGATOR.idFromName("pact-events");
-			const stub = env.PACT_AGGREGATOR.get(id);
-
-			const eventData = {
+			const eventData: PactEventData = {
 				pacticipant,
 				eventType,
 				provider: providerName,
@@ -89,6 +64,7 @@ export default {
 				providerVersionDescriptions,
 			};
 
+			const stub = getPactAggregatorStub(env);
 			await stub.fetch(new Request("http://fake-host/add-event", {
 				method: "POST",
 				body: JSON.stringify(eventData),
@@ -102,12 +78,10 @@ export default {
 		}
 	},
 
-	// Runs automatically every 2 minutes (Cloudflare Cron)
+	// Runs automatically (Cloudflare Cron). Schedule defined in wrangler.jsonc
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const now = Date.now();
 		console.log("🕒 Scheduled summary check at " + formatTime(now));
-
-		// Simply process batches - the Durable Object will handle timing logic
 		ctx.waitUntil(processAllBatches(env));
 	},
 };
@@ -121,16 +95,12 @@ function getPacticipant(eventType: string, provider: string, consumer: string) {
 		case "contract_requiring_verification_published":
 			return consumer;
 		default:
-			return "unknown";
+			throw new Error(`Unknown event type: ${eventType}`);
 	}
 }
 
 async function processAllBatches(env: Env) {
-	// Get Durable Object instance
-	const id = env.PACT_AGGREGATOR.idFromName("pact-events");
-	const stub = env.PACT_AGGREGATOR.get(id);
-
-	// Process batches through Durable Object
+	const stub = getPactAggregatorStub(env);
 	const response = await stub.fetch(new Request("http://fake-host/process-batches", {
 		method: "POST"
 	}));
@@ -140,7 +110,7 @@ async function processAllBatches(env: Env) {
 		return;
 	}
 
-	const result = await response.json() as { processedEvents: any[], eventCount: number };
+	const result = await response.json() as { processedEvents: StoredPactEvent[], eventCount: number };
 
 	// Send to Slack if we have events
 	if (result.processedEvents.length > 0) {
@@ -148,73 +118,72 @@ async function processAllBatches(env: Env) {
 	}
 }
 
-async function postSummaryToSlack(env: Env, events: any[]) {
+async function postSummaryToSlack(env: Env, events: StoredPactEvent[]) {
 	if (events.length === 0) return;
 
 	// Group events by pacticipant
-	const grouped = events.reduce((acc: Record<string, any[]>, e: any) => {
+	const grouped = events.reduce((acc: Record<string, StoredPactEvent[]>, e: StoredPactEvent) => {
 		acc[e.pacticipant] = acc[e.pacticipant] || [];
 		acc[e.pacticipant].push(e);
 		return acc;
 	}, {});
 
 	for (const [pacticipant, evts] of Object.entries(grouped)) {
-		const verifications = evts.filter((e) => e.eventType === "provider_verification_published");
+		const verifications = evts.filter((e) =>
+			e.eventType === "provider_verification_published");
 		const publications = evts.filter((e) =>
 			e.eventType === "contract_content_changed" || e.eventType === "contract_requiring_verification_published");
 
-		const branch =
-			verifications.length !== 0
-				? verifications[0].providerVersionBranch
-				: publications[0]?.consumerVersionBranch;
-
-		const commitHash =
-			verifications.length !== 0
-				? verifications[0].providerVersionNumber
-				: publications[0]?.consumerVersionNumber;
-
-		const ok = verifications.filter((e) => e.status === "success").length;
-		const fail = verifications.filter((e) => e.status !== "success").length;
-
-		const publicationSummary =
-			publications.length === 0 ? "" : `Pact publications: ${publications.length} `;
-		const okString = ok === 0 ? "" : `${SUCCESS_EMOJI}${ok} `;
-		const failString = fail === 0 ? "" : `${FAILURE_EMOJI}${fail}`;
-		const verificationSummary =
-			verifications.length === 0 ? "" : `Pact verifications: ${okString}${failString}`;
-
-		// Create GitHub links
-		const { branchLink, githubLink } = createGithubLinks(pacticipant, branch, commitHash);
-		const summary = `*${pacticipant}* ${branchLink}${githubLink}\n${publicationSummary}${verificationSummary}`;
-
 		const summaryResp = await slackPost(env, {
-			text: summary,
+			text: createSummaryText(pacticipant, verifications, publications),
 			channel: slackChannel,
 		});
 
-		const summaryTs = summaryResp.ts;
-
 		// Build single thread reply with all details
-		let threadDetails = "";
-
-		for (const e of publications) {
-			const description = e.providerVersionDescriptions ? ` - ${e.providerVersionDescriptions}` : "";
-			const providerVersionNumber = description !== "" ? e.providerVersionNumber : undefined;
-			const providerVersionBranch = description !== "" ? e.providerVersionBranch : undefined;
-			const { branchLink: providerBranchLink, githubLink: providerGithubLink } = createGithubLinks(e.provider, providerVersionBranch, providerVersionNumber);
-			threadDetails += `Published <${e.pactUrl}|contract> to be verified from *${e.provider}* ${providerBranchLink}${providerGithubLink}${description}\n`;
-		}
-
-		for (const e of verifications) {
-			const { branchLink: consumerBranchLink, githubLink: githubCommitLink } = createGithubLinks(e.consumer, e.consumerVersionBranch, e.consumerVersionNumber);
-			threadDetails += `*${e.consumer}* ${consumerBranchLink}${githubCommitLink}: ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details>\n`;
-		}
-
-		// Send single thread reply if there are any details
-		if (threadDetails.trim()) {
-			await slackPost(env, { text: threadDetails.trim(), channel: slackChannel, thread_ts: summaryTs });
-		}
+		await slackPost(env, {
+			text: createThreadText(publications, verifications),
+			channel: slackChannel,
+			thread_ts: summaryResp.ts
+		});
 	}
+}
+
+function createSummaryText(pacticipant: string, verifications: StoredPactEvent[], publications: StoredPactEvent[]): string {
+	const successCount = verifications.filter((e) => e.status === "success").length;
+	const failedCount = verifications.length - successCount;
+
+	const publicationSummary = publications.length === 0 ? "" : `Pact publications: ${publications.length} `;
+	const okString = successCount === 0 ? "" : `${SUCCESS_EMOJI}${successCount} `;
+	const failString = failedCount === 0 ? "" : `${FAILURE_EMOJI}${failedCount}`;
+	const verificationSummary = verifications.length === 0 ? "" : `Pact verifications: ${okString}${failString}`;
+
+	const branch = verifications.length !== 0
+		? verifications[0].providerVersionBranch
+		: publications[0]?.consumerVersionBranch;
+	const commitHash = verifications.length !== 0
+		? verifications[0].providerVersionNumber
+		: publications[0]?.consumerVersionNumber;
+	const { branchLink, githubLink } = createGithubLinks(pacticipant, branch, commitHash);
+	const summary = `*${pacticipant}* ${branchLink}${githubLink}\n${publicationSummary}${verificationSummary}`;
+	return summary;
+}
+
+function createThreadText(publications: StoredPactEvent[], verifications: StoredPactEvent[]): string {
+	let threadDetails = "";
+
+	for (const e of publications) {
+		const description = e.providerVersionDescriptions ? ` - ${e.providerVersionDescriptions}` : "";
+		const providerVersionNumber = description !== "" ? e.providerVersionNumber : undefined;
+		const providerVersionBranch = description !== "" ? e.providerVersionBranch : undefined;
+		const { branchLink, githubLink } = createGithubLinks(e.provider, providerVersionBranch, providerVersionNumber);
+		threadDetails += `Published <${e.pactUrl}|contract> to be verified from *${e.provider}* ${branchLink}${githubLink}${description}\n`;
+	}
+
+	for (const e of verifications) {
+		const { branchLink, githubLink } = createGithubLinks(e.consumer, e.consumerVersionBranch, e.consumerVersionNumber);
+		threadDetails += `*${e.consumer}* ${branchLink}${githubLink}: ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details>\n`;
+	}
+	return threadDetails;
 }
 
 async function slackPost(env: Env, body: Record<string, any>) {
@@ -265,6 +234,12 @@ function createGithubLinks(participant: string, branch?: string, commitHash?: st
 		githubLink: commitHash ? createCommitLink(repo, commitHash) : ""
 	};
 }
+
+function getPactAggregatorStub(env: Env): DurableObjectStub {
+	const id = env.PACT_AGGREGATOR.idFromName("pact-events");
+	return env.PACT_AGGREGATOR.get(id);
+}
+
 function mapPacticipantToRepo(consumer: any) {
 	switch (consumer) {
 		case "Bo":
