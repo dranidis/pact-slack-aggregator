@@ -23,10 +23,9 @@ interface WebhookPayload {
 // const slackChannel = "#pact-verifications";
 const slackChannel = "#ci";
 
-// Configuration constants
-const CACHE_TTL_SECONDS = 600; // 10 minutes
-const QUIET_PERIOD_MS = 60_000; // 60 seconds
-const MINUTE_BUCKET_MS = 60000; // 1 minute for event bucketing
+// Emoji constants
+const SUCCESS_EMOJI = "✅";
+const FAILURE_EMOJI = "💥";
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
@@ -142,7 +141,6 @@ async function processAllBatches(env: Env) {
 	}
 
 	const result = await response.json() as { processedEvents: any[], eventCount: number };
-	console.log(`Processing ${result.eventCount} events`);
 
 	// Send to Slack if we have events
 	if (result.processedEvents.length > 0) {
@@ -180,15 +178,13 @@ async function postSummaryToSlack(env: Env, events: any[]) {
 
 		const publicationSummary =
 			publications.length === 0 ? "" : `Pact publications: ${publications.length} `;
-		const okString = ok === 0 ? "" : `🟢${ok} `;
-		const failString = fail === 0 ? "" : `🔴${fail}`;
+		const okString = ok === 0 ? "" : `${SUCCESS_EMOJI}${ok} `;
+		const failString = fail === 0 ? "" : `${FAILURE_EMOJI}${fail}`;
 		const verificationSummary =
 			verifications.length === 0 ? "" : `Pact verifications: ${okString}${failString}`;
 
-		// Add GitHub link if commit hash exists
-		const githubLink = commitHash ? ` <https://github.com/yourorganization/${mapPacticipantToRepo(pacticipant)}/commit/${commitHash}|${commitHash.substring(0, 7)}>` : "";
-		// Make branch name clickable
-		const branchLink = branch ? `<https://github.com/yourorganization/${mapPacticipantToRepo(pacticipant)}/tree/${branch}|${branch}>` : "";
+		// Create GitHub links
+		const { branchLink, githubLink } = createGithubLinks(pacticipant, branch, commitHash);
 		const summary = `*${pacticipant}* ${branchLink}${githubLink}\n${publicationSummary}${verificationSummary}`;
 
 		const summaryResp = await slackPost(env, {
@@ -205,17 +201,13 @@ async function postSummaryToSlack(env: Env, events: any[]) {
 			const description = e.providerVersionDescriptions ? ` - ${e.providerVersionDescriptions}` : "";
 			const providerVersionNumber = description !== "" ? e.providerVersionNumber : undefined;
 			const providerVersionBranch = description !== "" ? e.providerVersionBranch : undefined;
-			const providerGithubLink = providerVersionNumber ? ` <https://github.com/yourorganization/${mapPacticipantToRepo(e.provider)}/commit/${providerVersionNumber}|${providerVersionNumber.substring(0, 7)}>` : "";
-			const providerBranchLink = providerVersionBranch ? `<https://github.com/yourorganization/${mapPacticipantToRepo(e.provider)}/tree/${providerVersionBranch}|${providerVersionBranch}>` : "";
+			const { branchLink: providerBranchLink, githubLink: providerGithubLink } = createGithubLinks(e.provider, providerVersionBranch, providerVersionNumber);
 			threadDetails += `Published <${e.pactUrl}|contract> to be verified from *${e.provider}* ${providerBranchLink}${providerGithubLink}${description}\n`;
 		}
 
 		for (const e of verifications) {
-			const consumerVersionNumber = e.consumerVersionNumber;
-			const repo = mapPacticipantToRepo(e.consumer);
-			const githubCommitLink = consumerVersionNumber ? ` <https://github.com/yourorganization/${repo}/commit/${consumerVersionNumber}|${consumerVersionNumber.substring(0, 7)}>` : "";
-			const consumerBranchLink = e.consumerVersionBranch ? `<https://github.com/yourorganization/${repo}/tree/${e.consumerVersionBranch}|${e.consumerVersionBranch}>` : "";
-			threadDetails += `*${e.consumer}* ${consumerBranchLink}${githubCommitLink}: ${e.status === "success" ? "🟢" : "🔴"} <${e.resultUrl}|Details>\n`;
+			const { branchLink: consumerBranchLink, githubLink: githubCommitLink } = createGithubLinks(e.consumer, e.consumerVersionBranch, e.consumerVersionNumber);
+			threadDetails += `*${e.consumer}* ${consumerBranchLink}${githubCommitLink}: ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details>\n`;
 		}
 
 		// Send single thread reply if there are any details
@@ -256,6 +248,22 @@ function formatTime(timestamp: number) {
 	const mm = String(date.getMinutes()).padStart(2, '0');
 	const ss = String(date.getSeconds()).padStart(2, '0');
 	return `${hh}:${mm}:${ss}`;
+}
+
+function createCommitLink(repo: string, commitHash: string): string {
+	return ` <https://github.com/yourorganization/${repo}/commit/${commitHash}|${commitHash.substring(0, 7)}>`;
+}
+
+function createBranchLink(repo: string, branch: string): string {
+	return `<https://github.com/yourorganization/${repo}/tree/${branch}|${branch}>`;
+}
+
+function createGithubLinks(participant: string, branch?: string, commitHash?: string): { branchLink: string; githubLink: string } {
+	const repo = mapPacticipantToRepo(participant);
+	return {
+		branchLink: branch ? createBranchLink(repo, branch) : "",
+		githubLink: commitHash ? createCommitLink(repo, commitHash) : ""
+	};
 }
 function mapPacticipantToRepo(consumer: any) {
 	switch (consumer) {

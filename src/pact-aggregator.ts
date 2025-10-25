@@ -1,3 +1,10 @@
+import type { Env } from './index';
+
+// Configuration constants
+const QUIET_PERIOD_MS = 10_000; // 10 seconds
+const MINUTE_BUCKET_MS = 60000; // 1 minute for event bucketing
+const MAX_TIME_BEFORE_FLUSHING = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 // Durable Object for handling pact event aggregation
 export class PactAggregator {
 	private state: DurableObjectState;
@@ -37,7 +44,7 @@ export class PactAggregator {
 			this.lastEventTime = Date.now();
 
 			// Create bucket key (1-minute buckets)
-			const minuteBucket = Math.floor(this.lastEventTime / 60000);
+			const minuteBucket = Math.floor(this.lastEventTime / MINUTE_BUCKET_MS);
 			const bucketKey = `events:${minuteBucket}`;
 
 			// Get existing events for this bucket
@@ -69,7 +76,25 @@ export class PactAggregator {
 			await this.loadState();
 
 			const now = Date.now();
-			const currentMinute = Math.floor(now / 60000);
+			const currentMinute = Math.floor(now / MINUTE_BUCKET_MS);
+
+			// Check timing constraints before processing
+			const timeSinceLastEvent = now - this.lastEventTime;
+			const timeSinceLastProcess = now - this.lastProcessTime;
+
+			// Don't process if within quiet period unless 5 minutes have passed since last process
+			if (timeSinceLastEvent < QUIET_PERIOD_MS && timeSinceLastProcess < MAX_TIME_BEFORE_FLUSHING) {
+				console.log(`Skipping processing: within quiet period (${timeSinceLastEvent}ms since last event) and less than 5 minutes since last process (${timeSinceLastProcess}ms)`);
+				return new Response(JSON.stringify({
+					processedEvents: [],
+					eventCount: 0,
+					bucketsProcessed: 0,
+					skipped: true,
+					reason: "within_quiet_period"
+				}), {
+					headers: { "Content-Type": "application/json" }
+				});
+			}
 
 			let allEvents: any[] = [];
 			const bucketsToDelete: string[] = [];
@@ -132,14 +157,6 @@ export class PactAggregator {
 		});
 	}
 
-	public async getTimingInfo(): Promise<{ lastEventTime: number; lastProcessTime: number }> {
-		await this.loadState();
-		return {
-			lastEventTime: this.lastEventTime,
-			lastProcessTime: this.lastProcessTime
-		};
-	}
-
 	private async loadState(): Promise<void> {
 		// Load state from durable object storage
 		const storedLastEventTime = await this.state.storage.get("lastEventTime") as number;
@@ -158,10 +175,4 @@ export class PactAggregator {
 			this.events = new Map(Object.entries(storedEvents));
 		}
 	}
-}
-
-interface Env {
-	SLACK_TOKEN: string;
-	PACT_AGGREGATOR: DurableObjectNamespace;
-	DEBUG_KEY: string;
 }
