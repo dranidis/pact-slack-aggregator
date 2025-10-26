@@ -1,4 +1,5 @@
 
+import { now, formatTime as timeUtilsFormatTime } from "./time-utils";
 import type { WebhookPayload, PactEventData, StoredPactEvent } from './types';
 export { PactAggregator } from './pact-aggregator';
 
@@ -72,8 +73,8 @@ export default {
 
 	// Runs automatically (Cloudflare Cron). Schedule defined in wrangler.jsonc
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		const now = Date.now();
-		console.log("🕒 Scheduled summary check at " + formatTime(now));
+		const currentTime = now();
+		console.log("🕒 Scheduled summary check at " + timeUtilsFormatTime(currentTime));
 		ctx.waitUntil(processAllBatches(env));
 	},
 };

@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { now, getMinuteBucket, formatTime } from "./time-utils";
 import type { PactEventData, StoredPactEvent } from './types';
 
 export class PactAggregator extends DurableObject<Env> {
@@ -6,15 +7,11 @@ export class PactAggregator extends DurableObject<Env> {
 		super(ctx, env);
 	}
 
-	async addEvent(event: PactEventData): Promise<void> {
+	async addEvent(eventData: PactEventData) {
 		try {
-			const now = Date.now();
-
-			// Create bucket key (1-minute buckets)
-			const minuteBucket = Math.floor(now / this.env.MINUTE_BUCKET_MS);
-			const bucketKey = `events:${minuteBucket}`;
-
-			// Get existing events
+			const currentTime = now();
+			const bucketMinute = getMinuteBucket(currentTime);
+			const bucketKey = `events:${bucketMinute}`;			// Get existing events
 			const events = await this.getEvents();
 
 			// Get existing events for this bucket
@@ -24,11 +21,11 @@ export class PactAggregator extends DurableObject<Env> {
 
 			// Add event to bucket
 			events.get(bucketKey)!.push({
-				...event,
-				ts: now
+				...eventData,
+				ts: currentTime
 			} as StoredPactEvent);
 
-			await this.setLastEventTime(now);
+			await this.setLastEventTime(currentTime);
 			await this.setEvents(events);
 		} catch (err) {
 			console.error("❌ addEvent: Error adding event:", err);
@@ -37,14 +34,10 @@ export class PactAggregator extends DurableObject<Env> {
 
 	async processBatches(): Promise<StoredPactEvent[]> {
 		try {
-			const now = Date.now();
-			const currentMinute = Math.floor(now / this.env.MINUTE_BUCKET_MS);
-
-			// Check timing constraints before processing
-			const timeSinceLastEvent = now - await this.getLastEventTime();
-			const timeSinceLastProcess = now - await this.getLastProcessTime();
-
-			// Don't process if within quiet period unless 5 minutes have passed since last process
+			const currentTime = now();
+			const currentMinute = getMinuteBucket(currentTime);
+			const timeSinceLastEvent = currentTime - await this.getLastEventTime();
+			const timeSinceLastProcess = currentTime - await this.getLastProcessTime();			// Don't process if within quiet period unless 5 minutes have passed since last process
 			if (timeSinceLastEvent < this.env.QUIET_PERIOD_MS && timeSinceLastProcess < this.env.MAX_TIME_BEFORE_FLUSHING) {
 				console.log(`Skipping processing: within quiet period (${timeSinceLastEvent}ms since last event) and less than 5 minutes since last process (${timeSinceLastProcess}ms)`);
 				return [];
@@ -60,7 +53,7 @@ export class PactAggregator extends DurableObject<Env> {
 			for (const [bucketKey, eventList] of events.entries()) {
 				const bucketMinute = parseInt(bucketKey.split(":")[1]);
 
-				if (bucketMinute !== currentMinute) {
+				if (bucketMinute.toString() !== currentMinute) {
 					allEvents = allEvents.concat(eventList);
 					bucketsToDelete.push(bucketKey);
 				}
@@ -72,7 +65,7 @@ export class PactAggregator extends DurableObject<Env> {
 			}
 
 			// Persist updated state
-			await this.setLastProcessTime(now);
+			await this.setLastProcessTime(currentTime);
 
 			if (bucketsToDelete.length > 0) {
 				await this.setEvents(events);
@@ -107,8 +100,8 @@ export class PactAggregator extends DurableObject<Env> {
 			totalEvents: Array.from(events.values()).reduce((sum, eventList) => sum + eventList.length, 0),
 			totalProcessedEvents: totalProcessed,
 			lastProcessedCount,
-			timeSinceLastEvent: lastEventTime > 0 ? Date.now() - lastEventTime : null,
-			timeSinceLastProcess: lastProcessTime > 0 ? Date.now() - lastProcessTime : null
+			timeSinceLastEvent: lastEventTime > 0 ? now() - lastEventTime : null,
+			timeSinceLastProcess: lastProcessTime > 0 ? now() - lastProcessTime : null
 		};
 	}
 
