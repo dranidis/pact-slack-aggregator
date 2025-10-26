@@ -7,8 +7,9 @@ describe('PactAggregator', () => {
 	let aggregator: any; // The actual Durable Object instance
 
 	beforeEach(async () => {
-		// Get the Durable Object namespace and create an instance
-		const id = env.PACT_AGGREGATOR.idFromName("pact-events");
+		// Use a unique ID for each test to avoid state persistence
+		const uniqueId = `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+		const id = env.PACT_AGGREGATOR.idFromName(uniqueId);
 		const stub = env.PACT_AGGREGATOR.get(id);
 
 		// Get the actual instance - in Vitest, this should give us access to the real methods
