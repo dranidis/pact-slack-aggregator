@@ -1,5 +1,5 @@
 
-import type { Env, WebhookPayload, PactEventData, StoredPactEvent } from './types';
+import type { WebhookPayload, PactEventData, StoredPactEvent } from './types';
 export { PactAggregator } from './pact-aggregator';
 
 // Emoji constants

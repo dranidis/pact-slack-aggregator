@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import type { Env, PactEventData, StoredPactEvent } from './types';
+import type { PactEventData, StoredPactEvent } from './types';
 
 export class PactAggregator extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) {

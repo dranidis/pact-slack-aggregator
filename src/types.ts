@@ -1,13 +1,3 @@
-export interface Env {
-	MAX_TIME_BEFORE_FLUSHING: number;
-	MINUTE_BUCKET_MS: number;
-	QUIET_PERIOD_MS: number;
-	SLACK_CHANNEL: string;
-	SLACK_TOKEN: string;
-	PACT_AGGREGATOR: DurableObjectNamespace<import('./pact-aggregator').PactAggregator>;
-	DEBUG_KEY: string;
-}
-
 export interface WebhookPayload {
 	eventType: string;
 	providerName: string;

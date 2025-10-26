@@ -10,6 +10,14 @@ This application is a Cloudflare Worker designed to aggregate events from the co
 - **Event Bucketing**: Events are grouped into 1-minute buckets for efficient processing.
 - **Flushing Interval**: Events are flushed and processed if they remain unprocessed for more than 5 minutes.
 
+## TS Env types
+
+```
+wrangler types
+```
+
+generates Env type using .env and vars in wrangler.jsonc
+
 ## Deploy
 
 ```
