@@ -117,20 +117,20 @@ async function postSummaryToSlack(env: Env, events: StoredPactEvent[]) {
 			e.eventType === "contract_content_changed" || e.eventType === "contract_requiring_verification_published");
 
 		const summaryResp = await slackPost(env, {
-			text: createSummaryText(pacticipant, verifications, publications),
+			text: createSummaryText(env, pacticipant, verifications, publications),
 			channel: slackChannel,
 		});
 
 		// Build single thread reply with all details
 		await slackPost(env, {
-			text: createThreadText(publications, verifications),
+			text: createThreadText(env, publications, verifications),
 			channel: slackChannel,
 			thread_ts: summaryResp.ts
 		});
 	}
 }
 
-function createSummaryText(pacticipant: string, verifications: StoredPactEvent[], publications: StoredPactEvent[]): string {
+function createSummaryText(env: Env, pacticipant: string, verifications: StoredPactEvent[], publications: StoredPactEvent[]): string {
 	const successCount = verifications.filter((e) => e.status === "success").length;
 	const failedCount = verifications.length - successCount;
 
@@ -145,25 +145,25 @@ function createSummaryText(pacticipant: string, verifications: StoredPactEvent[]
 	const commitHash = verifications.length !== 0
 		? verifications[0].providerVersionNumber
 		: publications[0]?.consumerVersionNumber;
-	const { branchLink, githubLink } = createGithubLinks(pacticipant, branch, commitHash);
+	const { branchLink, githubLink } = createGithubLinks(env, pacticipant, branch, commitHash);
 	const summary = `*${pacticipant}* ${branchLink}${githubLink}\n${publicationSummary}${verificationSummary}`;
 	return summary;
 }
 
-function createThreadText(publications: StoredPactEvent[], verifications: StoredPactEvent[]): string {
+function createThreadText(env: Env, publications: StoredPactEvent[], verifications: StoredPactEvent[]): string {
 	let threadDetails = "";
 
 	for (const e of publications) {
 		const description = e.providerVersionDescriptions ? ` - ${e.providerVersionDescriptions}` : "";
 		const providerVersionNumber = description !== "" ? e.providerVersionNumber : undefined;
 		const providerVersionBranch = description !== "" ? e.providerVersionBranch : undefined;
-		const { branchLink, githubLink } = createGithubLinks(e.provider, providerVersionBranch, providerVersionNumber);
-		threadDetails += `Published <${e.pactUrl}|contract> to be verified from *${e.provider}* ${branchLink}${githubLink}${description}\n`;
+		const { branchLink, githubLink } = createGithubLinks(env, e.provider, providerVersionBranch, providerVersionNumber);
+		threadDetails += `Published <${e.pactUrl}|contract> to be verified from provider *${e.provider}* ${branchLink}${githubLink}${description}\n`;
 	}
 
 	for (const e of verifications) {
-		const { branchLink, githubLink } = createGithubLinks(e.consumer, e.consumerVersionBranch, e.consumerVersionNumber);
-		threadDetails += `*${e.consumer}* ${branchLink}${githubLink}: ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details>\n`;
+		const { branchLink, githubLink } = createGithubLinks(env, e.consumer, e.consumerVersionBranch, e.consumerVersionNumber);
+		threadDetails += `Verified consumer *${e.consumer}* ${branchLink}${githubLink}: ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details>\n`;
 	}
 	return threadDetails;
 }
@@ -201,19 +201,19 @@ function formatTime(timestamp: number) {
 	return `${hh}:${mm}:${ss}`;
 }
 
-function createCommitLink(repo: string, commitHash: string): string {
-	return ` <https://github.com/yourorganization/${repo}/commit/${commitHash}|${commitHash.substring(0, 7)}>`;
+function createCommitLink(env: Env, repo: string, commitHash: string): string {
+	return ` ${env.GITHUB_BASE_URL}/${repo}/commit/${commitHash}|${commitHash.substring(0, 7)}>`;
 }
 
-function createBranchLink(repo: string, branch: string): string {
-	return `<https://github.com/yourorganization/${repo}/tree/${branch}|${branch}>`;
+function createBranchLink(env: Env, repo: string, branch: string): string {
+	return `<${env.GITHUB_BASE_URL}/${repo}/tree/${branch}|${branch}>`;
 }
 
-function createGithubLinks(participant: string, branch?: string, commitHash?: string): { branchLink: string; githubLink: string } {
-	const repo = mapPacticipantToRepo(participant);
+function createGithubLinks(env: Env, participant: string, branch?: string, commitHash?: string): { branchLink: string; githubLink: string } {
+	const repo = mapPacticipantToRepo(env, participant);
 	return {
-		branchLink: branch ? createBranchLink(repo, branch) : "",
-		githubLink: commitHash ? createCommitLink(repo, commitHash) : ""
+		branchLink: branch ? createBranchLink(env, repo, branch) : "",
+		githubLink: commitHash ? createCommitLink(env, repo, commitHash) : ""
 	};
 }
 
@@ -223,19 +223,11 @@ function getPactAggregatorStub(env: Env) {
 	return stub;
 }
 
-function mapPacticipantToRepo(consumer: any) {
-	switch (consumer) {
-		case "Bo":
-		case "BoUI":
-			return "someback";
-		case "LaravelBonusEngine":
-			return "lbe";
-		case "SomeAPI":
-			return "someapi"
-		case "FrontEnd":
-			return "frontend"
-		default:
-			return consumer.toLowerCase();
+function mapPacticipantToRepo(env: Env, pacticipant: any) {
+	const mapped = env.PACTICIPANT_TO_REPO_MAP ? JSON.parse(env.PACTICIPANT_TO_REPO_MAP) as Record<string, string> : {};
+	if (mapped[pacticipant]) {
+		return mapped[pacticipant];
 	}
+	return pacticipant.toLowerCase();
 }
 

@@ -12,15 +12,27 @@ This application is a Cloudflare Worker designed to aggregate events from the co
 
 ## TS Env types
 
-```
+```sh
 wrangler types
 ```
 
 generates Env type using .env and vars in wrangler.jsonc
 
+## Local dev
+
+```sh
+wrangler dev
+```
+
+CRON jobs do not work in dev. You have to trigger the job execution manually (DEV_PORT is the port reported):
+
+```sh
+curl http://localhost:$DEV_PORT/trigger\?key\=$DEBUG_KEY
+```
+
 ## Deploy
 
-```
+```sh
 wrangler deploy
 ```
 
@@ -28,7 +40,7 @@ wrangler deploy
 
 The only action needed to change the slack workspace (e.g. BA Trigonon or Test templates) to which the messages are being sent is:
 
-```
+```sh
 wrangler secret put SLACK_TOKEN
 ```
 
@@ -37,7 +49,7 @@ e.g. `xoxb-......................`
 
 ## Watch logs
 
-```
+```sh
 wrangler tail pact-slack-aggregator
 ```
 
@@ -49,7 +61,7 @@ curl https://psa.workers.dev/debug\?key\=DEBUG_KEY
 
 ## List existing webhooks
 
-```
+```sh
 curl -X GET https://pactbrokerurl.com/webhooks
 ```
 

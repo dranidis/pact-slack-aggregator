@@ -14,7 +14,9 @@
 		"SLACK_CHANNEL": "#ci",
 		"QUIET_PERIOD_MS": 10000, // if an event was received within the last 10 seconds, skip processing
 		"MINUTE_BUCKET_MS": 60000, // events are bucketed per minute
-		"MAX_TIME_BEFORE_FLUSHING": 300000 // if 5 minutes have passed since last processing, force processing even if quiet period not passed
+		"MAX_TIME_BEFORE_FLUSHING": 300000, // if 5 minutes have passed since last processing, force processing even if quiet period not passed
+		"GITHUB_BASE_URL": "https://github.com/yourorganization", // Change to your GitHub Enterprise URL if applicable
+		"PACTICIPANT_TO_REPO_MAP": "{\"Bo\":\"someback\",\"BoUI\":\"someback\",\"LaravelBonusEngine\":\"lbe\",\"SomeAPI\":\"someapi\",\"FrontEnd\":\"frontend\"}" // JSON string mapping pacticipants to GitHub repos
 	},
 	"durable_objects": {
 		"bindings": [
