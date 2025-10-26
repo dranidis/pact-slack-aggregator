@@ -6,7 +6,7 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "pact-slack-aggregator",
 	"main": "src/index.ts",
-	"compatibility_date": "2025-10-22",
+	"compatibility_date": "2025-09-06",
 	"observability": {
 		"enabled": true
 	},

@@ -155,8 +155,10 @@ function createThreadText(env: Env, publications: StoredPactEvent[], verificatio
 
 	for (const e of publications) {
 		const description = e.providerVersionDescriptions ? ` - ${e.providerVersionDescriptions}` : "";
-		const providerVersionNumber = description !== "" ? e.providerVersionNumber : undefined;
-		const providerVersionBranch = description !== "" ? e.providerVersionBranch : undefined;
+		// provider version info only relevant if descriptions exist since these are
+		// separate events for each version
+		const providerVersionNumber = e.providerVersionDescriptions ? e.providerVersionNumber : undefined;
+		const providerVersionBranch = e.providerVersionDescriptions ? e.providerVersionBranch : undefined;
 		const { branchLink, githubLink } = createGithubLinks(env, e.provider, providerVersionBranch, providerVersionNumber);
 		threadDetails += `Published <${e.pactUrl}|contract> to be verified from provider *${e.provider}* ${branchLink}${githubLink}${description}\n`;
 	}
