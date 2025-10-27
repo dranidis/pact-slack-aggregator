@@ -1,6 +1,7 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import worker from '../src/index';
+import { expectTimestampToBeRecent } from './test-utils';
 
 // For now, you'll need to do something like this to get a correctly-typed
 // `Request` to pass to `worker.fetch()`.
@@ -193,7 +194,7 @@ describe('Pact Slack Aggregator Worker', () => {
 					}
 				];
 
-				// Add all events at 10:00:00
+				// Add all events at 10:00:00 except last one at 10:01:00
 				for (const event of events) {
 					const response = await SELF.fetch('https://example.com', {
 						method: 'POST',
@@ -203,17 +204,43 @@ describe('Pact Slack Aggregator Worker', () => {
 					expect(response.status).toBe(200);
 				}
 
-				// 2. Move time forward to 10:01:30 (past the minute bucket)
-				currentMockTime = baseTime + (90 * 1000); // 90 seconds later
+				// 2. Move time forward to 10:01:00 (exactly on the minute bucket)
+				currentMockTime = baseTime + (60 * 1000); // 60 seconds later
+				mockTime(() => currentMockTime);
+				const expectedLastEventTime = currentMockTime;
 
-				// 3. Trigger batch processing
+				const extraEvent = {
+					eventType: 'provider_verification_published',
+					providerName: 'PaymentService2',
+					consumerName: 'MobileApp2',
+					verificationResultUrl: 'https://pact.example.com/results/failure',
+					pactUrl: 'https://pact.example.com/pacts/mobileapp2-paymentservice2',
+					githubVerificationStatus: 'failure',
+					consumerVersionBranch: 'feature/payment-update2',
+					providerVersionBranch: 'main',
+					consumerVersionNumber: '4185212aa78081950835d54920bee2bea8501d60',
+					providerVersionNumber: '50bee2bea8501d60808195080d54924185212aa7'
+				}
+
+				const extraResponse = await SELF.fetch('https://example.com', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(extraEvent)
+				});
+				expect(extraResponse.status).toBe(200);
+
+				// 3. Move time forward to 10:01:30 (past the minute bucket)
+				currentMockTime = baseTime + (90 * 1000); // 90 seconds later
+				const expectedLastProcessTime = currentMockTime;
+
+				// 4. Trigger batch processing
 				const triggerResponse = await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
 				expect(triggerResponse.status).toBe(200);
 
-				// 4. Wait for processing to complete
+				// 5. Wait for processing to complete
 				await new Promise(resolve => setTimeout(resolve, 100));
 
-				// 5. Verify all Slack summary and thread messages were sent
+				// 6. Verify all Slack summary and thread messages were sent
 				expect(slackCalls.length).toBe(2 * events.length);
 
 				// Check that we have messages for different pacticipants
@@ -243,6 +270,33 @@ Pact publications: 1`;
 				expect(allMessagesText).toContain(paymentServiceThread);
 				expect(allMessagesText).toContain(adminPanelSummary);
 				expect(allMessagesText).toContain(adminPanelThread);
+
+				// assert that the extra event is also present with debug info
+				const debugResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
+				expect(debugResponse.status).toBe(200);
+				const debugData = await debugResponse.json();
+				expect(debugData.totalEvents).toBe(1);
+				// expect(debugData.eventBuckets['events:1001'][0]).toMatchObject(extraEvent);
+				// expect(debugData.lastEventTime).toBe(currentMockTime);
+				// expect(debugData.lastProcessTime).toBeGreaterThanOrEqual(currentMockTime);
+				expectTimestampToBeRecent(debugData.lastEventTime, expectedLastEventTime);
+				expectTimestampToBeRecent(debugData.lastProcessTime, expectedLastProcessTime);
+				expect(debugData.totalProcessedEvents).toBe(events.length);
+				expect(debugData.lastProcessedCount).toBe(events.length);
+
+				// move time forward, trigger and verify last event is also sent
+				currentMockTime = baseTime + (150 * 1000); // 150 seconds later
+				const expectedLastProcessTime2 = currentMockTime;
+
+				// Trigger batch processing again
+				const triggerResponse2 = await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
+				expect(triggerResponse2.status).toBe(200);
+
+				// Wait for processing to complete
+				await new Promise(resolve => setTimeout(resolve, 100));
+
+				// Verify Slack message was sent for the last event
+				expect(slackCalls.length).toBe(2 * events.length + 2); // +2 for summary and thread
 			} finally {
 				// Always reset time after test
 				resetTime();

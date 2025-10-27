@@ -3,14 +3,14 @@ import { env } from 'cloudflare:test';
 import { PactAggregator } from '../src/pact-aggregator';
 import type { PactEventData } from '../src/types';
 import { now } from '../src/time-utils';
-import { C } from 'vitest/dist/chunks/reporters.d.BFLkQcL6.js';
+import { expectTimestampToBeRecent, createUniqueTestId, createTestEventData } from './test-utils';
 
 describe('PactAggregator', () => {
 	let aggregator: any; // The actual Durable Object instance
 
 	beforeEach(async () => {
 		// Use a unique ID for each test to avoid state persistence
-		const uniqueId = `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+		const uniqueId = createUniqueTestId('pact-aggregator');
 		const id = env.PACT_AGGREGATOR.idFromName(uniqueId);
 		const stub = env.PACT_AGGREGATOR.get(id);
 
@@ -20,15 +20,7 @@ describe('PactAggregator', () => {
 
 	describe('addEvent', () => {
 		it('should add a pact event to storage', async () => {
-			const testEvent: PactEventData = {
-				pacticipant: 'TestProvider',
-				eventType: 'provider_verification_published',
-				provider: 'TestProvider',
-				consumer: 'TestConsumer',
-				status: 'success',
-				resultUrl: 'https://example.com/results',
-				pactUrl: 'https://example.com/pact'
-			};
+			const testEvent = createTestEventData();
 
 			// Call the method directly
 			await aggregator.addEvent(testEvent);
@@ -94,15 +86,9 @@ describe('PactAggregator', () => {
 		});
 
 		it('should show correct event counts after adding events', async () => {
-			const testEvent: PactEventData = {
-				pacticipant: 'TestProvider',
-				eventType: 'provider_verification_published',
-				provider: 'TestProvider',
-				consumer: 'TestConsumer',
-				status: 'success'
-			};
-
+			const testEvent = createTestEventData();
 			const timeBeforeCall = now();
+
 			// Add an event
 			await aggregator.addEvent(testEvent);
 
@@ -110,8 +96,7 @@ describe('PactAggregator', () => {
 			const debugData = await aggregator.getDebugInfo();
 
 			expect(debugData.totalEvents).toBe(1);
-			expect(debugData.lastEventTime).toBeGreaterThan(timeBeforeCall);
-			expect(debugData.lastEventTime).toBeLessThan(timeBeforeCall + 100); // within 100 milliseconds
+			expectTimestampToBeRecent(debugData.lastEventTime, timeBeforeCall);
 		});
 	});
 });
