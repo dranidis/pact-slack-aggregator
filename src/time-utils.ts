@@ -29,8 +29,8 @@ export function resetTime(): void {
 /**
  * Get the minute bucket for a given timestamp
  */
-export function getMinuteBucket(timestamp: number): string {
-	return Math.floor(timestamp / 60000).toString();
+export function getMinuteBucket(timestamp: number, bucketDuration: number): string {
+	return Math.floor(timestamp / bucketDuration).toString();
 }
 
 /**

@@ -164,9 +164,16 @@ function createThreadText(env: Env, publications: StoredPactEvent[], verificatio
 		threadDetails += `Published <${e.pactUrl}|contract> to be verified from provider *${e.provider}* ${branchLink}${githubLink}${description}\n`;
 	}
 
+	if (verifications.length > 0) {
+		threadDetails += "Verified consumers:\n";
+		verifications.sort((a, b) => a.consumer.localeCompare(b.consumer));
+	}
+
+	// sort verifications by consumer name
+
 	for (const e of verifications) {
 		const { branchLink, githubLink } = createGithubLinks(env, e.consumer, e.consumerVersionBranch, e.consumerVersionNumber);
-		threadDetails += `Verified consumer *${e.consumer}* ${branchLink}${githubLink}: ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details>\n`;
+		threadDetails += `- *${e.consumer}* ${branchLink}${githubLink}: ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details>\n`;
 	}
 	return threadDetails;
 }
@@ -205,7 +212,7 @@ function formatTime(timestamp: number) {
 }
 
 function createCommitLink(env: Env, repo: string, commitHash: string): string {
-	return ` ${env.GITHUB_BASE_URL}/${repo}/commit/${commitHash}|${commitHash.substring(0, 7)}>`;
+	return ` <${env.GITHUB_BASE_URL}/${repo}/commit/${commitHash}|${commitHash.substring(0, 7)}>`;
 }
 
 function createBranchLink(env: Env, repo: string, branch: string): string {

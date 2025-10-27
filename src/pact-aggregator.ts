@@ -7,10 +7,10 @@ export class PactAggregator extends DurableObject<Env> {
 		super(ctx, env);
 	}
 
-	async addEvent(eventData: PactEventData) {
+	async addEvent(eventData: PactEventData): Promise<void> {
 		try {
 			const currentTime = now();
-			const bucketMinute = getMinuteBucket(currentTime);
+			const bucketMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS);
 			const bucketKey = `events:${bucketMinute}`;			// Get existing events
 			const events = await this.getEvents();
 
@@ -35,7 +35,7 @@ export class PactAggregator extends DurableObject<Env> {
 	async processBatches(): Promise<StoredPactEvent[]> {
 		try {
 			const currentTime = now();
-			const currentMinute = getMinuteBucket(currentTime);
+			const currentMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS);
 			const timeSinceLastEvent = currentTime - await this.getLastEventTime();
 			const timeSinceLastProcess = currentTime - await this.getLastProcessTime();			// Don't process if within quiet period unless 5 minutes have passed since last process
 			if (timeSinceLastEvent < this.env.QUIET_PERIOD_MS && timeSinceLastProcess < this.env.MAX_TIME_BEFORE_FLUSHING) {
@@ -83,12 +83,14 @@ export class PactAggregator extends DurableObject<Env> {
 	}
 
 	async getDebugInfo() {
+		const currentTime = now();
 		const lastEventTime = await this.getLastEventTime();
 		const lastProcessTime = await this.getLastProcessTime();
 		const events = await this.getEvents();
 		const { totalProcessed, lastProcessedCount } = await this.getProcessingStats();
 
 		return {
+			currentTime,
 			lastEventTime,
 			lastProcessTime,
 			eventBuckets: Object.fromEntries(

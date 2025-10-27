@@ -168,8 +168,8 @@ describe('Pact Slack Aggregator Worker', () => {
 						githubVerificationStatus: 'success',
 						consumerVersionBranch: 'main',
 						providerVersionBranch: 'main',
-						consumerVersionNumber: 'v1.2.0',
-						providerVersionNumber: 'v2.1.0'
+						consumerVersionNumber: '5d54920bee2bea8501d604185212aa7808195083',
+						providerVersionNumber: '5d54920bee2bea8501d604185212aafds8081950'
 					},
 					{
 						eventType: 'provider_verification_published',
@@ -180,8 +180,8 @@ describe('Pact Slack Aggregator Worker', () => {
 						githubVerificationStatus: 'failure',
 						consumerVersionBranch: 'feature/payment-update',
 						providerVersionBranch: 'main',
-						consumerVersionNumber: 'v2.0.0-beta',
-						providerVersionNumber: 'v1.5.0'
+						consumerVersionNumber: 'e2bea8501d604185212aa78081950835d54920be',
+						providerVersionNumber: '50bee2bea8501d604185212aa7808195080d5492'
 					},
 					{
 						eventType: 'contract_content_changed',
@@ -189,7 +189,7 @@ describe('Pact Slack Aggregator Worker', () => {
 						consumerName: 'AdminPanel',
 						pactUrl: 'https://pact.example.com/pacts/adminpanel-notificationservice',
 						consumerVersionBranch: 'feature/new-notifications',
-						consumerVersionNumber: 'v3.1.0-alpha'
+						consumerVersionNumber: '5d549e2bea185212aa78081950838501d60420be'
 					}
 				];
 
@@ -213,8 +213,8 @@ describe('Pact Slack Aggregator Worker', () => {
 				// 4. Wait for processing to complete
 				await new Promise(resolve => setTimeout(resolve, 100));
 
-				// 5. Verify Slack messages were sent
-				expect(slackCalls.length).toBeGreaterThan(0);
+				// 5. Verify all Slack summary and thread messages were sent
+				expect(slackCalls.length).toBe(2 * events.length);
 
 				// Check that we have messages for different pacticipants
 				const messages = slackCalls.map(call => call.text || call.blocks?.[0]?.text?.text || '');
@@ -222,17 +222,17 @@ describe('Pact Slack Aggregator Worker', () => {
 
 				// Verify messages contain our test data
 				const userServiceSummary =
-					`*UserService* <${env.GITHUB_BASE_URL}/userservice/tree/main|main> ${env.GITHUB_BASE_URL}/userservice/commit/v2.1.0|v2.1.0>
+					`*UserService* <${env.GITHUB_BASE_URL}/userservice/tree/main|main> <${env.GITHUB_BASE_URL}/userservice/commit/5d54920bee2bea8501d604185212aafds8081950|5d54920>
 Pact verifications: ✅1`;
 				const userServiceThread =
-					`Verified consumer *WebApp* <${env.GITHUB_BASE_URL}/webapp/tree/main|main> ${env.GITHUB_BASE_URL}/webapp/commit/v1.2.0|v1.2.0>: ✅ <https://pact.example.com/results/success|Details>`;
+					`*WebApp* <${env.GITHUB_BASE_URL}/webapp/tree/main|main> <${env.GITHUB_BASE_URL}/webapp/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>: ✅ <https://pact.example.com/results/success|Details>`;
 				const paymentServiceSummary =
-					`*PaymentService* <${env.GITHUB_BASE_URL}/paymentservice/tree/main|main> ${env.GITHUB_BASE_URL}/paymentservice/commit/v1.5.0|v1.5.0>
+					`*PaymentService* <${env.GITHUB_BASE_URL}/paymentservice/tree/main|main> <${env.GITHUB_BASE_URL}/paymentservice/commit/50bee2bea8501d604185212aa7808195080d5492|50bee2b>
 Pact verifications: 💥1`;
 				const paymentServiceThread =
-					`Verified consumer *MobileApp* <${env.GITHUB_BASE_URL}/mobileapp/tree/feature/payment-update|feature/payment-update> ${env.GITHUB_BASE_URL}/mobileapp/commit/v2.0.0-beta|v2.0.0->: 💥 <https://pact.example.com/results/failure|Details>`;
+					`*MobileApp* <${env.GITHUB_BASE_URL}/mobileapp/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobileapp/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>: 💥 <https://pact.example.com/results/failure|Details>`;
 				const adminPanelSummary =
-					`*AdminPanel* <${env.GITHUB_BASE_URL}/adminpanel/tree/feature/new-notifications|feature/new-notifications> ${env.GITHUB_BASE_URL}/adminpanel/commit/v3.1.0-alpha|v3.1.0->
+					`*AdminPanel* <${env.GITHUB_BASE_URL}/adminpanel/tree/feature/new-notifications|feature/new-notifications> <${env.GITHUB_BASE_URL}/adminpanel/commit/5d549e2bea185212aa78081950838501d60420be|5d549e2>
 Pact publications: 1`;
 				const adminPanelThread =
 					`Published <https://pact.example.com/pacts/adminpanel-notificationservice|contract> to be verified from provider *NotificationService*`;

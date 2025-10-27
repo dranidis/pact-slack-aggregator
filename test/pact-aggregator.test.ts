@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { PactAggregator } from '../src/pact-aggregator';
 import type { PactEventData } from '../src/types';
+import { now } from '../src/time-utils';
+import { C } from 'vitest/dist/chunks/reporters.d.BFLkQcL6.js';
 
 describe('PactAggregator', () => {
 	let aggregator: any; // The actual Durable Object instance
@@ -100,6 +102,7 @@ describe('PactAggregator', () => {
 				status: 'success'
 			};
 
+			const timeBeforeCall = now();
 			// Add an event
 			await aggregator.addEvent(testEvent);
 
@@ -107,7 +110,8 @@ describe('PactAggregator', () => {
 			const debugData = await aggregator.getDebugInfo();
 
 			expect(debugData.totalEvents).toBe(1);
-			expect(debugData.lastEventTime).toBeGreaterThan(0);
+			expect(debugData.lastEventTime).toBeGreaterThan(timeBeforeCall);
+			expect(debugData.lastEventTime).toBeLessThan(timeBeforeCall + 100); // within 100 milliseconds
 		});
 	});
 });
