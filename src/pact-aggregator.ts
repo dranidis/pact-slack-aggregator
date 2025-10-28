@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { now, getMinuteBucket, formatTime } from "./time-utils";
+import { now, getMinuteBucket } from "./time-utils";
 import type { PactEventData, StoredPactEvent, DebugInfo } from './types';
 
 export class PactAggregator extends DurableObject<Env> {

@@ -45,3 +45,9 @@ export interface DebugInfo {
 	timeSinceLastEvent: number | null;
 	timeSinceLastProcess: number | null;
 }
+
+export interface SlackPost {
+	text: string;
+	channel: string;
+	thread_ts: string;
+}

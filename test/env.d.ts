@@ -1,3 +1,4 @@
 declare module 'cloudflare:test' {
-	interface ProvidedEnv extends Env {}
+	// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+	interface ProvidedEnv extends Env { }
 }

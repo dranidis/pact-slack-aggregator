@@ -1,6 +1,6 @@
 
 import { now, formatTime as timeUtilsFormatTime } from "./time-utils";
-import type { WebhookPayload, PactEventData, StoredPactEvent, DebugInfo } from './types';
+import type { WebhookPayload, PactEventData, StoredPactEvent, DebugInfo, SlackPost } from './types';
 import { pascalCaseToDash } from "./utils";
 export { PactAggregator } from './pact-aggregator';
 
@@ -9,7 +9,7 @@ const SUCCESS_EMOJI = "✅";
 const FAILURE_EMOJI = "💥";
 
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+	async fetch(request: Request, env: Env) {
 		const url = new URL(request.url);
 
 		// Debug endpoint
@@ -127,14 +127,14 @@ async function postSummaryToSlack(env: Env, events: StoredPactEvent[]) {
 		const summaryResp = await slackPost(env, {
 			text: createSummaryText(env, pacticipant, verifications, publications),
 			channel: slackChannel,
-		});
+		} as SlackPost);
 
 		// Build single thread reply with all details
 		await slackPost(env, {
 			text: createThreadText(env, publications, verifications),
 			channel: slackChannel,
 			thread_ts: summaryResp.ts
-		});
+		} as SlackPost);
 	}
 }
 
@@ -183,7 +183,7 @@ function createThreadText(env: Env, publications: StoredPactEvent[], verificatio
 	return threadDetails;
 }
 
-async function slackPost(env: Env, body: Record<string, any>) {
+async function slackPost(env: Env, body: SlackPost) {
 	const res = await fetch("https://slack.com/api/chat.postMessage", {
 		method: "POST",
 		headers: {
@@ -231,7 +231,7 @@ function getPactAggregatorStub(env: Env) {
 	return stub;
 }
 
-function mapPacticipantToRepo(env: Env, pacticipant: any) {
+function mapPacticipantToRepo(env: Env, pacticipant: string) {
 	const mapped = env.PACTICIPANT_TO_REPO_MAP ? JSON.parse(env.PACTICIPANT_TO_REPO_MAP) as Record<string, string> : {};
 	if (mapped[pacticipant]) {
 		return mapped[pacticipant];

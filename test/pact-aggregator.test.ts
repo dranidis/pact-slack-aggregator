@@ -3,18 +3,15 @@ import { env } from 'cloudflare:test';
 import type { PactEventData } from '../src/types';
 import { mockTime, now } from '../src/time-utils';
 import { expectTimestampToBeRecent, createUniqueTestId, createPactEventData } from './test-utilities';
+import { PactAggregator } from '../src';
 
 describe('PactAggregator', () => {
-	let aggregator: any; // The actual Durable Object instance
+	let aggregator: DurableObjectStub<PactAggregator>
 
 	beforeEach(async () => {
 		// Use a unique ID for each test to avoid state persistence
 		const uniqueId = createUniqueTestId('pact-aggregator');
-		const id = env.PACT_AGGREGATOR.idFromName(uniqueId);
-		const stub = env.PACT_AGGREGATOR.get(id);
-
-		// Get the actual instance - in Vitest, this should give us access to the real methods
-		aggregator = stub;
+		aggregator = env.PACT_AGGREGATOR.getByName(uniqueId);
 	});
 
 	describe('addEvent', () => {
@@ -22,7 +19,7 @@ describe('PactAggregator', () => {
 			const testEvent = createPactEventData();
 
 			const baseTime = new Date(0).getTime();
-			let currentMockTime = baseTime;
+			const currentMockTime = baseTime;
 
 			mockTime(() => currentMockTime);
 
@@ -46,7 +43,7 @@ describe('PactAggregator', () => {
 			expect(eventBucketsArray[0]!).toHaveProperty('count', 1);
 			expect(eventBucketsArray[0]!).toHaveProperty('events');
 
-			const storedEvent = (eventBucketsArray[0] as any).events[0];
+			const storedEvent = eventBucketsArray[0].events[0];
 			expect(storedEvent).toMatchObject(testEvent);
 		});
 	});

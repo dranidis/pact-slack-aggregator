@@ -2,11 +2,7 @@ import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloud
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import worker from '../src/index';
 import { createWebhookPayload, expectTimestampToBeRecent } from './test-utilities';
-import { DebugInfo, WebhookPayload } from '../src/types';
-
-// For now, you'll need to do something like this to get a correctly-typed
-// `Request` to pass to `worker.fetch()`.
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
+import { DebugInfo } from '../src/types';
 
 describe('Pact Slack Aggregator Worker', () => {
 	beforeEach(async () => {
@@ -251,7 +247,6 @@ Pact publications: 1`;
 
 				// move time forward, trigger and verify last event is also sent
 				currentMockTime = baseTime + (150 * 1000); // 150 seconds later
-				const expectedLastProcessTime2 = currentMockTime;
 
 				// Trigger batch processing again
 				const triggerResponse2 = await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
