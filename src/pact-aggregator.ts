@@ -143,4 +143,11 @@ export class PactAggregator extends DurableObject<Env> {
 		await this.ctx.storage.put("totalProcessed", currentTotal + processedCount);
 		await this.ctx.storage.put("lastProcessedCount", processedCount);
 	}
+
+	/**
+	 * Clear all stored data (useful for testing)
+	 */
+	async clearAll(): Promise<void> {
+		await this.ctx.storage.deleteAll();
+	}
 }

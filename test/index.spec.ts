@@ -9,7 +9,7 @@ import { DebugInfo, WebhookPayload } from '../src/types';
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 describe('Pact Slack Aggregator Worker', () => {
-	beforeEach(() => {
+	beforeEach(async () => {
 		vi.clearAllMocks();
 
 		// Mock fetch for Slack API calls
@@ -17,6 +17,14 @@ describe('Pact Slack Aggregator Worker', () => {
 			json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
 			ok: true
 		}));
+
+		// Clear Durable Object state by making a request to clear it
+		// This is a workaround for test isolation issues
+		try {
+			await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}&clear=true`);
+		} catch (e) {
+			// Ignore errors during cleanup
+		}
 	});
 
 	describe('Webhook endpoint', () => {

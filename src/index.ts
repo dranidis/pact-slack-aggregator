@@ -14,6 +14,12 @@ export default {
 
 		// Debug endpoint
 		if (url.pathname === "/debug" && url.searchParams.get("key") === env.DEBUG_KEY) {
+			// Check if this is a clear request (for test isolation)
+			if (url.searchParams.get("clear") === "true") {
+				await getPactAggregatorStub(env).clearAll();
+				return new Response("State cleared", { status: 200 });
+			}
+
 			const debugData: DebugInfo = await getPactAggregatorStub(env).getDebugInfo();
 			return new Response(JSON.stringify(debugData, null, 2), {
 				headers: { "Content-Type": "application/json" }
@@ -219,7 +225,6 @@ function createGithubLinks(env: Env, participant: string, branch?: string, commi
 }
 
 function getPactAggregatorStub(env: Env) {
-	// const id = env.PACT_AGGREGATOR.idFromName("pact-events");
 	const stub = env.PACT_AGGREGATOR.getByName("pact-events");
 	return stub;
 }

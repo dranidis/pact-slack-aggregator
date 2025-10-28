@@ -17,5 +17,9 @@ export default defineWorkersConfig({
 		// Add timeout for VS Code compatibility
 		testTimeout: 10000,
 		hookTimeout: 10000,
+		// Force tests to run in sequence to prevent state conflicts
+		sequence: {
+			concurrent: false,
+		},
 	},
 });
