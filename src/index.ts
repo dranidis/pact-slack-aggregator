@@ -1,6 +1,6 @@
 
 import { now, formatTime as timeUtilsFormatTime } from "./time-utils";
-import type { WebhookPayload, PactEventData, StoredPactEvent, DebugInfo, SlackPost } from './types';
+import type { WebhookPayload, PactEventData, StoredPactEvent, DebugInfo, SlackPostMessageResponse, SlackPostMessageRequest } from './types';
 import { pascalCaseToDash } from "./utils";
 export { PactAggregator } from './pact-aggregator';
 
@@ -127,14 +127,14 @@ async function postSummaryToSlack(env: Env, events: StoredPactEvent[]) {
 		const summaryResp = await slackPost(env, {
 			text: createSummaryText(env, pacticipant, verifications, publications),
 			channel: slackChannel,
-		} as SlackPost);
+		} as SlackPostMessageRequest);
 
 		// Build single thread reply with all details
 		await slackPost(env, {
 			text: createThreadText(env, publications, verifications),
 			channel: slackChannel,
 			thread_ts: summaryResp.ts
-		} as SlackPost);
+		} as SlackPostMessageRequest);
 	}
 }
 
@@ -183,7 +183,7 @@ function createThreadText(env: Env, publications: StoredPactEvent[], verificatio
 	return threadDetails;
 }
 
-async function slackPost(env: Env, body: SlackPost) {
+async function slackPost(env: Env, body: SlackPostMessageRequest) {
 	const res = await fetch("https://slack.com/api/chat.postMessage", {
 		method: "POST",
 		headers: {
@@ -192,7 +192,7 @@ async function slackPost(env: Env, body: SlackPost) {
 		},
 		body: JSON.stringify(body),
 	});
-	const json = await res.json() as any;
+	const json = await res.json() as SlackPostMessageResponse;
 	if (!json.ok) {
 		console.error("❌ Slack API Error:", {
 			error: json.error,

@@ -4,6 +4,15 @@ import worker from '../src/index';
 import { createWebhookPayload, expectTimestampToBeRecent } from './test-utilities';
 import { DebugInfo } from '../src/types';
 
+interface SlackCallMock {
+	text?: string;
+	blocks?: Array<{
+		text?: {
+			text?: string;
+		};
+	}>;
+}
+
 describe('Pact Slack Aggregator Worker', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
@@ -100,8 +109,8 @@ describe('Pact Slack Aggregator Worker', () => {
 			const { mockTime, resetTime } = await import('../src/time-utils');
 
 			// Mock fetch to capture Slack API calls
-			const slackCalls: any[] = [];
-			vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: any) => {
+			const slackCalls: SlackCallMock[] = [];
+			vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: { body: string }) => {
 				if (url.includes('slack.com/api/chat.postMessage')) {
 					const body = JSON.parse(options.body);
 					slackCalls.push(body);

@@ -46,8 +46,16 @@ export interface DebugInfo {
 	timeSinceLastProcess: number | null;
 }
 
-export interface SlackPost {
+export interface SlackPostMessageRequest {
 	text: string;
 	channel: string;
 	thread_ts: string;
+}
+
+export interface SlackPostMessageResponse {
+	ok: boolean;
+	ts?: string;
+	error?: string;
+	needed?: string;
+	provided?: string;
 }
