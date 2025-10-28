@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import worker from '../src/index';
 import { createWebhookPayload, expectTimestampToBeRecent } from './test-utilities';
 import { DebugInfo } from '../src/types';
+import { mockTime, resetTime } from '../src/time-utils';
 
 interface SlackCallMock {
 	text?: string;
@@ -105,9 +106,6 @@ describe('Pact Slack Aggregator Worker', () => {
 
 	describe('Full workflow with time mocking', () => {
 		it('should process events and send Slack messages with time control', async () => {
-			// Import our time utilities for mocking
-			const { mockTime, resetTime } = await import('../src/time-utils');
-
 			// Mock fetch to capture Slack API calls
 			const slackCalls: SlackCallMock[] = [];
 			vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: { body: string }) => {
@@ -271,5 +269,61 @@ Pact publications: 1`;
 				resetTime();
 			}
 		});
+
+		it('should not send Slack message when triggered within quiet period', async () => {
+			try {
+				// Mock fetch to capture Slack API calls
+				const slackCalls: SlackCallMock[] = [];
+				vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: { body: string }) => {
+					if (url.includes('slack.com/api/chat.postMessage')) {
+						const body = JSON.parse(options.body);
+						slackCalls.push(body);
+						return Promise.resolve({
+							json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
+							ok: true
+						});
+					}
+					return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+				}));
+
+				let currentMockTime = 1000000000000; // Fixed timestamp
+				mockTime(() => currentMockTime);
+
+				// send a trigger to set last process time
+				await trigger();
+				// Send an event
+				await sendEvent();
+				// move time to next bucket and send another event
+				currentMockTime += env.MINUTE_BUCKET_MS + 1; // +1 minute
+				mockTime(() => currentMockTime);
+				await sendEvent();
+
+				// Move time forward to just before QUIET_PERIOD_MS expires
+				const quietPeriodMs = env.QUIET_PERIOD_MS;
+				mockTime(() => currentMockTime + quietPeriodMs - 1); // 1ms before quiet period expires
+				// Trigger batch processing
+				await trigger();
+
+				// Wait for processing to complete
+				await new Promise(resolve => setTimeout(resolve, 100));
+				// Verify NO Slack message was sent (should be empty because we're still in quiet period)
+				expect(slackCalls.length).toBe(0);
+			} finally {
+				// Always reset time after test
+				resetTime();
+			}
+		});
 	});
 });
+async function sendEvent() {
+	await SELF.fetch('https://example.com', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(createWebhookPayload())
+	});
+}
+
+async function trigger() {
+	await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
+}
+

@@ -38,6 +38,7 @@ export class PactAggregator extends DurableObject<Env> {
 			const currentMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS);
 			const timeSinceLastEvent = currentTime - await this.getLastEventTime();
 			const timeSinceLastProcess = currentTime - await this.getLastProcessTime();			// Don't process if within quiet period unless 5 minutes have passed since last process
+
 			if (timeSinceLastEvent < this.env.QUIET_PERIOD_MS && timeSinceLastProcess < this.env.MAX_TIME_BEFORE_FLUSHING) {
 				console.log(`Skipping processing: within quiet period (${timeSinceLastEvent}ms since last event) and less than 5 minutes since last process (${timeSinceLastProcess}ms)`);
 				return [];
