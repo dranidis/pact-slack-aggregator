@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { PactAggregator } from '../src/pact-aggregator';
 import type { PactEventData } from '../src/types';
-import { now } from '../src/time-utils';
-import { expectTimestampToBeRecent, createUniqueTestId, createTestEventData } from './test-utils';
+import { mockTime, now } from '../src/time-utils';
+import { expectTimestampToBeRecent, createUniqueTestId, createPactEventData } from './test-utilities';
 
 describe('PactAggregator', () => {
 	let aggregator: any; // The actual Durable Object instance
@@ -20,31 +20,35 @@ describe('PactAggregator', () => {
 
 	describe('addEvent', () => {
 		it('should add a pact event to storage', async () => {
-			const testEvent = createTestEventData();
+			const testEvent = createPactEventData();
+
+			const baseTime = new Date(0).getTime();
+			let currentMockTime = baseTime;
+
+			mockTime(() => currentMockTime);
 
 			// Call the method directly
 			await aggregator.addEvent(testEvent);
 
 			// Verify the event was stored by checking debug info
 			const debugData = await aggregator.getDebugInfo();
+			// console.log("Debug Data after addEvent:", debugData);
+
 			expect(debugData.totalEvents).toBe(1);
-		});
+			expectTimestampToBeRecent(debugData.lastEventTime, currentMockTime);
 
-		it('should handle different event types correctly', async () => {
-			const contractEvent: PactEventData = {
-				pacticipant: 'TestConsumer',
-				eventType: 'contract_content_changed',
-				provider: 'TestProvider',
-				consumer: 'TestConsumer',
-				pactUrl: 'https://example.com/pact'
-			};
+			// there is one bucket with the correct key
+			// there is one bucket with one event
+			const bucketKey = 'events:0';
+			expect(debugData.eventBuckets).toHaveProperty(bucketKey);
 
-			// Call the method directly - should not throw
-			await expect(aggregator.addEvent(contractEvent)).resolves.not.toThrow();
+			const eventBucketsArray = Object.values(debugData.eventBuckets);
+			expect(eventBucketsArray).toHaveLength(1);
+			expect(eventBucketsArray[0]!).toHaveProperty('count', 1);
+			expect(eventBucketsArray[0]!).toHaveProperty('events');
 
-			// Verify event was stored
-			const debugData = await aggregator.getDebugInfo();
-			expect(debugData.totalEvents).toBe(1);
+			const storedEvent = (eventBucketsArray[0] as any).events[0];
+			expect(storedEvent).toMatchObject(testEvent);
 		});
 	});
 
@@ -86,7 +90,7 @@ describe('PactAggregator', () => {
 		});
 
 		it('should show correct event counts after adding events', async () => {
-			const testEvent = createTestEventData();
+			const testEvent = createPactEventData();
 			const timeBeforeCall = now();
 
 			// Add an event

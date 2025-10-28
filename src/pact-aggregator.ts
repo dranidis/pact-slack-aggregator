@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { now, getMinuteBucket, formatTime } from "./time-utils";
-import type { PactEventData, StoredPactEvent } from './types';
+import type { PactEventData, StoredPactEvent, DebugInfo } from './types';
 
 export class PactAggregator extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) {
@@ -82,7 +82,7 @@ export class PactAggregator extends DurableObject<Env> {
 		}
 	}
 
-	async getDebugInfo() {
+	async getDebugInfo(): Promise<DebugInfo> {
 		const currentTime = now();
 		const lastEventTime = await this.getLastEventTime();
 		const lastProcessTime = await this.getLastProcessTime();

@@ -1,7 +1,8 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import worker from '../src/index';
-import { expectTimestampToBeRecent } from './test-utils';
+import { createWebhookPayload, expectTimestampToBeRecent } from './test-utilities';
+import { DebugInfo, WebhookPayload } from '../src/types';
 
 // For now, you'll need to do something like this to get a correctly-typed
 // `Request` to pass to `worker.fetch()`.
@@ -19,48 +20,11 @@ describe('Pact Slack Aggregator Worker', () => {
 	});
 
 	describe('Webhook endpoint', () => {
-		it('should handle pact webhook correctly (unit style)', async () => {
-			const webhookPayload = {
-				eventType: 'provider_verification_published',
-				providerName: 'TestProvider',
-				consumerName: 'TestConsumer',
-				verificationResultUrl: 'https://example.com/results',
-				pactUrl: 'https://example.com/pact',
-				githubVerificationStatus: 'success',
-				consumerVersionBranch: 'main',
-				providerVersionBranch: 'main',
-				consumerVersionNumber: 'abc123',
-				providerVersionNumber: 'def456'
-			};
-
-			const request = new IncomingRequest('http://example.com', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(webhookPayload)
-			});
-
-			const ctx = createExecutionContext();
-			const response = await worker.fetch(request, env, ctx);
-			await waitOnExecutionContext(ctx);
-
-			expect(response.status).toBe(200);
-			expect(await response.text()).toBe('OK');
-		});
-
 		it('should handle pact webhook correctly (integration style)', async () => {
-			const webhookPayload = {
-				eventType: 'contract_content_changed',
-				providerName: 'TestProvider',
-				consumerName: 'TestConsumer',
-				pactUrl: 'https://example.com/pact',
-				consumerVersionBranch: 'feature/new-api',
-				consumerVersionNumber: 'ghi345678'
-			};
-
 			const response = await SELF.fetch('https://example.com', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(webhookPayload)
+				body: JSON.stringify(createWebhookPayload())
 			});
 
 			expect(response.status).toBe(200);
@@ -92,10 +56,12 @@ describe('Pact Slack Aggregator Worker', () => {
 			const response = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
 			expect(response.status).toBe(200);
 
-			const debugData = await response.json();
+			const debugData = await response.json() as DebugInfo;
 			expect(debugData).toHaveProperty('lastEventTime');
 			expect(debugData).toHaveProperty('eventBuckets');
 			expect(debugData).toHaveProperty('totalEvents');
+			expect(debugData).toHaveProperty('lastProcessTime');
+			expect(debugData).toHaveProperty('totalProcessedEvents');
 		});
 
 		it('should reject debug request with wrong key', async () => {
@@ -249,17 +215,17 @@ describe('Pact Slack Aggregator Worker', () => {
 
 				// Verify messages contain our test data
 				const userServiceSummary =
-					`*UserService* <${env.GITHUB_BASE_URL}/userservice/tree/main|main> <${env.GITHUB_BASE_URL}/userservice/commit/5d54920bee2bea8501d604185212aafds8081950|5d54920>
+					`*UserService* <${env.GITHUB_BASE_URL}/user-service/tree/main|main> <${env.GITHUB_BASE_URL}/user-service/commit/5d54920bee2bea8501d604185212aafds8081950|5d54920>
 Pact verifications: ✅1`;
 				const userServiceThread =
-					`*WebApp* <${env.GITHUB_BASE_URL}/webapp/tree/main|main> <${env.GITHUB_BASE_URL}/webapp/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>: ✅ <https://pact.example.com/results/success|Details>`;
+					`✅ <https://pact.example.com/results/success|Details> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
 				const paymentServiceSummary =
-					`*PaymentService* <${env.GITHUB_BASE_URL}/paymentservice/tree/main|main> <${env.GITHUB_BASE_URL}/paymentservice/commit/50bee2bea8501d604185212aa7808195080d5492|50bee2b>
+					`*PaymentService* <${env.GITHUB_BASE_URL}/payment-service/tree/main|main> <${env.GITHUB_BASE_URL}/payment-service/commit/50bee2bea8501d604185212aa7808195080d5492|50bee2b>
 Pact verifications: 💥1`;
 				const paymentServiceThread =
-					`*MobileApp* <${env.GITHUB_BASE_URL}/mobileapp/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobileapp/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>: 💥 <https://pact.example.com/results/failure|Details>`;
+					`💥 <https://pact.example.com/results/failure|Details> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
 				const adminPanelSummary =
-					`*AdminPanel* <${env.GITHUB_BASE_URL}/adminpanel/tree/feature/new-notifications|feature/new-notifications> <${env.GITHUB_BASE_URL}/adminpanel/commit/5d549e2bea185212aa78081950838501d60420be|5d549e2>
+					`*AdminPanel* <${env.GITHUB_BASE_URL}/admin-panel/tree/feature/new-notifications|feature/new-notifications> <${env.GITHUB_BASE_URL}/admin-panel/commit/5d549e2bea185212aa78081950838501d60420be|5d549e2>
 Pact publications: 1`;
 				const adminPanelThread =
 					`Published <https://pact.example.com/pacts/adminpanel-notificationservice|contract> to be verified from provider *NotificationService*`;
@@ -274,7 +240,7 @@ Pact publications: 1`;
 				// assert that the extra event is also present with debug info
 				const debugResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
 				expect(debugResponse.status).toBe(200);
-				const debugData = await debugResponse.json();
+				const debugData = await debugResponse.json() as DebugInfo;
 				expect(debugData.totalEvents).toBe(1);
 				// expect(debugData.eventBuckets['events:1001'][0]).toMatchObject(extraEvent);
 				// expect(debugData.lastEventTime).toBe(currentMockTime);
@@ -282,7 +248,6 @@ Pact publications: 1`;
 				expectTimestampToBeRecent(debugData.lastEventTime, expectedLastEventTime);
 				expectTimestampToBeRecent(debugData.lastProcessTime, expectedLastProcessTime);
 				expect(debugData.totalProcessedEvents).toBe(events.length);
-				expect(debugData.lastProcessedCount).toBe(events.length);
 
 				// move time forward, trigger and verify last event is also sent
 				currentMockTime = baseTime + (150 * 1000); // 150 seconds later

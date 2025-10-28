@@ -1,6 +1,6 @@
 import { expect } from 'vitest';
 import { now } from '../src/time-utils';
-import type { PactEventData } from '../src/types';
+import type { PactEventData, WebhookPayload } from '../src/types';
 
 /**
  * Assert that a timestamp is within a reasonable time range of the current time
@@ -45,7 +45,7 @@ export function createUniqueTestId(prefix: string = 'test'): string {
  * Helper to create test event data
  * @param overrides - Properties to override in the default event
  */
-export function createTestEventData(overrides: Partial<PactEventData> = {}): PactEventData {
+export function createPactEventData(overrides: Partial<PactEventData> = {}): PactEventData {
 	return {
 		pacticipant: 'TestProvider',
 		eventType: 'provider_verification_published',
@@ -55,5 +55,21 @@ export function createTestEventData(overrides: Partial<PactEventData> = {}): Pac
 		resultUrl: 'https://example.com/results',
 		pactUrl: 'https://example.com/pact',
 		...overrides
+	};
+}
+
+export function createWebhookPayload(): WebhookPayload {
+	return {
+		eventType: 'provider_verification_published',
+		providerName: 'TestProvider',
+		consumerName: 'TestConsumer',
+		verificationResultUrl: 'https://example.com/verification',
+		pactUrl: 'https://example.com/pact',
+		githubVerificationStatus: 'success',
+		consumerVersionBranch: 'main',
+		providerVersionBranch: 'main',
+		consumerVersionNumber: '1.0.0',
+		providerVersionNumber: '1.0.0',
+		providerVersionDescriptions: 'Initial release'
 	};
 }

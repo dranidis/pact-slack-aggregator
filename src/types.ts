@@ -30,3 +30,18 @@ export interface PactEventData {
 export interface StoredPactEvent extends PactEventData {
 	ts: number; // timestamp when event was received
 }
+
+export interface DebugInfo {
+	currentTime: number;
+	lastEventTime: number;
+	lastProcessTime: number;
+	eventBuckets: Record<string, {
+		count: number;
+		events: StoredPactEvent[];
+	}>;
+	totalEvents: number;
+	totalProcessedEvents: number;
+	lastProcessedCount: number;
+	timeSinceLastEvent: number | null;
+	timeSinceLastProcess: number | null;
+}

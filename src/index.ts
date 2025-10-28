@@ -1,6 +1,7 @@
 
 import { now, formatTime as timeUtilsFormatTime } from "./time-utils";
-import type { WebhookPayload, PactEventData, StoredPactEvent } from './types';
+import type { WebhookPayload, PactEventData, StoredPactEvent, DebugInfo } from './types';
+import { pascalCaseToDash } from "./utils";
 export { PactAggregator } from './pact-aggregator';
 
 // Emoji constants
@@ -13,7 +14,7 @@ export default {
 
 		// Debug endpoint
 		if (url.pathname === "/debug" && url.searchParams.get("key") === env.DEBUG_KEY) {
-			const debugData = await getPactAggregatorStub(env).getDebugInfo();
+			const debugData: DebugInfo = await getPactAggregatorStub(env).getDebugInfo();
 			return new Response(JSON.stringify(debugData, null, 2), {
 				headers: { "Content-Type": "application/json" }
 			});
@@ -169,11 +170,9 @@ function createThreadText(env: Env, publications: StoredPactEvent[], verificatio
 		verifications.sort((a, b) => a.consumer.localeCompare(b.consumer));
 	}
 
-	// sort verifications by consumer name
-
 	for (const e of verifications) {
 		const { branchLink, githubLink } = createGithubLinks(env, e.consumer, e.consumerVersionBranch, e.consumerVersionNumber);
-		threadDetails += `- *${e.consumer}* ${branchLink}${githubLink}: ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details>\n`;
+		threadDetails += `- ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details> *${e.consumer}* ${branchLink}${githubLink}\n`;
 	}
 	return threadDetails;
 }
@@ -203,14 +202,6 @@ async function slackPost(env: Env, body: Record<string, any>) {
 	return json;
 }
 
-function formatTime(timestamp: number) {
-	const date = new Date(timestamp);
-	const hh = String(date.getHours()).padStart(2, '0');
-	const mm = String(date.getMinutes()).padStart(2, '0');
-	const ss = String(date.getSeconds()).padStart(2, '0');
-	return `${hh}:${mm}:${ss}`;
-}
-
 function createCommitLink(env: Env, repo: string, commitHash: string): string {
 	return ` <${env.GITHUB_BASE_URL}/${repo}/commit/${commitHash}|${commitHash.substring(0, 7)}>`;
 }
@@ -238,6 +229,6 @@ function mapPacticipantToRepo(env: Env, pacticipant: any) {
 	if (mapped[pacticipant]) {
 		return mapped[pacticipant];
 	}
-	return pacticipant.toLowerCase();
+	return pascalCaseToDash(pacticipant);
 }
 
