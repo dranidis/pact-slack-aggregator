@@ -7,11 +7,11 @@ import { mockTime, resetTime } from '../src/time-utils';
 
 interface SlackCallMock {
 	text?: string;
-	blocks?: Array<{
+	blocks?: {
 		text?: {
 			text?: string;
 		};
-	}>;
+	}[];
 }
 
 describe('Pact Slack Aggregator Worker', () => {
@@ -113,7 +113,7 @@ describe('Pact Slack Aggregator Worker', () => {
 			} as ScheduledEvent;
 
 			// This should not throw
-			await expect(worker.scheduled(scheduledEvent, env, ctx)).resolves.not.toThrow();
+			expect(() => worker.scheduled(scheduledEvent, env, ctx)).not.toThrow();
 			await waitOnExecutionContext(ctx);
 		});
 	});
@@ -207,7 +207,7 @@ describe('Pact Slack Aggregator Worker', () => {
 				expect(slackCalls.length).toBe(2 * events.length);
 
 				// Check that we have messages for different pacticipants
-				const messages = slackCalls.map(call => call.text || call.blocks?.[0]?.text?.text || '');
+				const messages = slackCalls.map(call => (call.text ?? call.blocks?.[0]?.text?.text) ?? '');
 				const allMessagesText = messages.join(' ');
 
 				// Verify messages contain our test data
@@ -237,7 +237,7 @@ Pact publications: 1`;
 				// assert that the extra event is also present with debug info
 				const debugResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
 				expect(debugResponse.status).toBe(200);
-				const debugData = await debugResponse.json() as DebugInfo;
+				const debugData: DebugInfo = await debugResponse.json();
 				expect(debugData.totalEvents).toBe(1);
 				// expect(debugData.eventBuckets['events:1001'][0]).toMatchObject(extraEvent);
 				// expect(debugData.lastEventTime).toBe(currentMockTime);
@@ -331,7 +331,7 @@ async function sendEvent(event?: WebhookPayload) {
 	return await SELF.fetch('https://example.com', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(event || createWebhookPayload())
+		body: JSON.stringify(event ?? createWebhookPayload())
 	});
 }
 

@@ -11,7 +11,7 @@ import type { PactEventData, WebhookPayload } from '../src/types';
 export function expectTimestampToBeRecent(
 	timestamp: number,
 	baseTime?: number,
-	toleranceMs: number = 100
+	toleranceMs = 100
 ): void {
 	const referenceTime = baseTime ?? now();
 	expect(timestamp).toBeGreaterThanOrEqual(referenceTime);
@@ -37,7 +37,7 @@ export function expectTimestampInRange(
  * Create a unique test ID for Durable Object testing to avoid state persistence
  * @param prefix - Optional prefix for the ID
  */
-export function createUniqueTestId(prefix: string = 'test'): string {
+export function createUniqueTestId(prefix = 'test') {
 	return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 

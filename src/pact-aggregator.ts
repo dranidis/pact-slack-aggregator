@@ -109,7 +109,7 @@ export class PactAggregator extends DurableObject<Env> {
 	}
 
 	private async getLastEventTime(): Promise<number> {
-		return (await this.ctx.storage.get("lastEventTime") as number) || 0;
+		return ((await this.ctx.storage.get("lastEventTime"))!) || 0;
 	}
 
 	private async setLastEventTime(time: number): Promise<void> {
@@ -117,7 +117,7 @@ export class PactAggregator extends DurableObject<Env> {
 	}
 
 	private async getLastProcessTime(): Promise<number> {
-		return (await this.ctx.storage.get("lastProcessTime") as number) || 0;
+		return ((await this.ctx.storage.get("lastProcessTime"))!) || 0;
 	}
 
 	private async setLastProcessTime(time: number): Promise<void> {
@@ -125,7 +125,7 @@ export class PactAggregator extends DurableObject<Env> {
 	}
 
 	private async getEvents(): Promise<Map<string, StoredPactEvent[]>> {
-		const storedEvents = await this.ctx.storage.get("events") as Record<string, StoredPactEvent[]>;
+		const storedEvents = (await this.ctx.storage.get("events"))!;
 		return storedEvents ? new Map(Object.entries(storedEvents)) : new Map();
 	}
 
@@ -134,13 +134,13 @@ export class PactAggregator extends DurableObject<Env> {
 	}
 
 	private async getProcessingStats(): Promise<{ totalProcessed: number; lastProcessedCount: number }> {
-		const totalProcessed = (await this.ctx.storage.get("totalProcessed") as number) || 0;
-		const lastProcessedCount = (await this.ctx.storage.get("lastProcessedCount") as number) || 0;
+		const totalProcessed: number = ((await this.ctx.storage.get("totalProcessed"))!) || 0;
+		const lastProcessedCount: number = ((await this.ctx.storage.get("lastProcessedCount"))!) || 0;
 		return { totalProcessed, lastProcessedCount };
 	}
 
 	private async updateProcessingStats(processedCount: number): Promise<void> {
-		const currentTotal = (await this.ctx.storage.get("totalProcessed") as number) || 0;
+		const currentTotal: number = ((await this.ctx.storage.get("totalProcessed"))!) || 0;
 		await this.ctx.storage.put("totalProcessed", currentTotal + processedCount);
 		await this.ctx.storage.put("lastProcessedCount", processedCount);
 	}

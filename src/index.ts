@@ -50,7 +50,7 @@ export default {
 				consumerVersionNumber,
 				providerVersionNumber,
 				providerVersionDescriptions,
-			} = await request.json() as WebhookPayload;
+			}: WebhookPayload = await request.json();
 
 			const pacticipant = getPacticipant(eventType, providerName, consumerName);
 
@@ -192,7 +192,7 @@ async function slackPost(env: Env, body: SlackPostMessageRequest) {
 		},
 		body: JSON.stringify(body),
 	});
-	const json = await res.json() as SlackPostMessageResponse;
+	const json: SlackPostMessageResponse = await res.json();
 	if (!json.ok) {
 		console.error("❌ Slack API Error:", {
 			error: json.error,
