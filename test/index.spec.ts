@@ -1,8 +1,8 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import worker from '../src/index';
 import { createWebhookPayload, expectTimestampToBeRecent } from './test-utilities';
-import { DebugInfo } from '../src/types';
+import { DebugInfo, WebhookPayload } from '../src/types';
 import { mockTime, resetTime } from '../src/time-utils';
 
 interface SlackCallMock {
@@ -15,7 +15,9 @@ interface SlackCallMock {
 }
 
 describe('Pact Slack Aggregator Worker', () => {
-	beforeEach(async () => {
+	const slackCalls: SlackCallMock[] = [];
+
+	beforeEach(() => {
 		vi.clearAllMocks();
 
 		// Mock fetch for Slack API calls
@@ -23,15 +25,27 @@ describe('Pact Slack Aggregator Worker', () => {
 			json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
 			ok: true
 		}));
+
+		vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: { body: string }) => {
+			if (url.includes('slack.com/api/chat.postMessage')) {
+				slackCalls.push(JSON.parse(options.body) as SlackCallMock);
+				return Promise.resolve({
+					json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
+					ok: true
+				});
+			}
+			return Promise.resolve({ ok: true });
+		}));
+	});
+
+	afterEach(() => {
+		vi.resetAllMocks();
+		slackCalls.length = 0; // Clear captured Slack calls
 	});
 
 	describe('Webhook endpoint', () => {
 		it('should handle pact webhook correctly (integration style)', async () => {
-			const response = await SELF.fetch('https://example.com', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(createWebhookPayload())
-			});
+			const response = await sendEvent();
 
 			expect(response.status).toBe(200);
 			expect(await response.text()).toBe('OK');
@@ -62,7 +76,7 @@ describe('Pact Slack Aggregator Worker', () => {
 			const response = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
 			expect(response.status).toBe(200);
 
-			const debugData = await response.json() as DebugInfo;
+			const debugData = await response.json();
 			expect(debugData).toHaveProperty('lastEventTime');
 			expect(debugData).toHaveProperty('eventBuckets');
 			expect(debugData).toHaveProperty('totalEvents');
@@ -78,7 +92,7 @@ describe('Pact Slack Aggregator Worker', () => {
 
 	describe('Manual trigger endpoint', () => {
 		it('should process batches when triggered', async () => {
-			const response = await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
+			const response = await trigger();
 			expect(response.status).toBe(200);
 			expect(await response.text()).toBe('Processing completed');
 		});
@@ -107,18 +121,6 @@ describe('Pact Slack Aggregator Worker', () => {
 	describe('Full workflow with time mocking', () => {
 		it('should process events and send Slack messages with time control', async () => {
 			// Mock fetch to capture Slack API calls
-			const slackCalls: SlackCallMock[] = [];
-			vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: { body: string }) => {
-				if (url.includes('slack.com/api/chat.postMessage')) {
-					const body = JSON.parse(options.body);
-					slackCalls.push(body);
-					return Promise.resolve({
-						json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
-						ok: true
-					});
-				}
-				return Promise.resolve({ ok: true });
-			}));
 
 			try {
 				// Start at a specific time (e.g., 10:00:00)
@@ -165,11 +167,7 @@ describe('Pact Slack Aggregator Worker', () => {
 
 				// Add all events at 10:00:00 except last one at 10:01:00
 				for (const event of events) {
-					const response = await SELF.fetch('https://example.com', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify(event)
-					});
+					const response = await sendEvent(event);
 					expect(response.status).toBe(200);
 				}
 
@@ -191,11 +189,7 @@ describe('Pact Slack Aggregator Worker', () => {
 					providerVersionNumber: '50bee2bea8501d60808195080d54924185212aa7'
 				}
 
-				const extraResponse = await SELF.fetch('https://example.com', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(extraEvent)
-				});
+				const extraResponse = await sendEvent(extraEvent);
 				expect(extraResponse.status).toBe(200);
 
 				// 3. Move time forward to 10:01:30 (past the minute bucket)
@@ -203,7 +197,7 @@ describe('Pact Slack Aggregator Worker', () => {
 				const expectedLastProcessTime = currentMockTime;
 
 				// 4. Trigger batch processing
-				const triggerResponse = await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
+				const triggerResponse = await trigger();
 				expect(triggerResponse.status).toBe(200);
 
 				// 5. Wait for processing to complete
@@ -256,7 +250,7 @@ Pact publications: 1`;
 				currentMockTime = baseTime + (150 * 1000); // 150 seconds later
 
 				// Trigger batch processing again
-				const triggerResponse2 = await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
+				const triggerResponse2 = await trigger();
 				expect(triggerResponse2.status).toBe(200);
 
 				// Wait for processing to complete
@@ -272,20 +266,6 @@ Pact publications: 1`;
 
 		it('should not send Slack message when triggered within quiet period', async () => {
 			try {
-				// Mock fetch to capture Slack API calls
-				const slackCalls: SlackCallMock[] = [];
-				vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: { body: string }) => {
-					if (url.includes('slack.com/api/chat.postMessage')) {
-						const body = JSON.parse(options.body);
-						slackCalls.push(body);
-						return Promise.resolve({
-							json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
-							ok: true
-						});
-					}
-					return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-				}));
-
 				let currentMockTime = 1000000000000; // Fixed timestamp
 				mockTime(() => currentMockTime);
 
@@ -313,17 +293,49 @@ Pact publications: 1`;
 				resetTime();
 			}
 		});
+
+		it('should send Slack message when MAX_TIME_BEFORE_FLUSHING expires even within quiet period', async () => {
+			try {
+				let currentMockTime = 1000000000000; // Fixed timestamp
+				mockTime(() => currentMockTime);
+
+				// send a trigger to set last process time
+				await trigger();
+				// Send an event
+				await sendEvent();
+				// move time to just before MAX_TIME_BEFORE_FLUSHING expires
+				currentMockTime += env.MAX_TIME_BEFORE_FLUSHING;
+				mockTime(() => currentMockTime);
+				await sendEvent();
+
+				// Move time forward to just before QUIET_PERIOD_MS expires
+				const quietPeriodMs = env.QUIET_PERIOD_MS;
+				mockTime(() => currentMockTime + quietPeriodMs - 1); // 1ms before quiet period expires
+				// Trigger batch processing
+				await trigger();
+
+				// Wait for processing to complete
+				await new Promise(resolve => setTimeout(resolve, 100));
+
+				// Verify Slack message was sent despite being in quiet period due to MAX_TIME_BEFORE_FLUSHING
+				expect(slackCalls.length).toBe(2);
+			} finally {
+				// Always reset time after test
+				resetTime();
+			}
+		});
 	});
 });
-async function sendEvent() {
-	await SELF.fetch('https://example.com', {
+
+async function sendEvent(event?: WebhookPayload) {
+	return await SELF.fetch('https://example.com', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(createWebhookPayload())
+		body: JSON.stringify(event || createWebhookPayload())
 	});
 }
 
 async function trigger() {
-	await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
+	return await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
 }
 

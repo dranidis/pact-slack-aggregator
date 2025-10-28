@@ -79,7 +79,7 @@ export default {
 	},
 
 	// Runs automatically (Cloudflare Cron). Schedule defined in wrangler.jsonc
-	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+	scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const currentTime = now();
 		console.log("🕒 Scheduled summary check at " + timeUtilsFormatTime(currentTime));
 		ctx.waitUntil(processAllBatches(env));

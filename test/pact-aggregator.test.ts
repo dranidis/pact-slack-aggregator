@@ -8,7 +8,7 @@ import { PactAggregator } from '../src';
 describe('PactAggregator', () => {
 	let aggregator: DurableObjectStub<PactAggregator>
 
-	beforeEach(async () => {
+	beforeEach(() => {
 		// Use a unique ID for each test to avoid state persistence
 		const uniqueId = createUniqueTestId('pact-aggregator');
 		aggregator = env.PACT_AGGREGATOR.getByName(uniqueId);
@@ -40,8 +40,8 @@ describe('PactAggregator', () => {
 
 			const eventBucketsArray = Object.values(debugData.eventBuckets);
 			expect(eventBucketsArray).toHaveLength(1);
-			expect(eventBucketsArray[0]!).toHaveProperty('count', 1);
-			expect(eventBucketsArray[0]!).toHaveProperty('events');
+			expect(eventBucketsArray[0].count).toBe(1);
+			expect(eventBucketsArray[0].events).toBeDefined();
 
 			const storedEvent = eventBucketsArray[0].events[0];
 			expect(storedEvent).toMatchObject(testEvent);
