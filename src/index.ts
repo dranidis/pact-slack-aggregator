@@ -225,7 +225,9 @@ function createGithubLinks(env: Env, participant: string, branch?: string, commi
 }
 
 function getPactAggregatorStub(env: Env) {
-	const stub = env.PACT_AGGREGATOR.getByName("pact-events");
+	// console.log("Using PACT_AGGREGATOR_NAME:", env.PACT_AGGREGATOR_NAME);
+	const objectName = env.PACT_AGGREGATOR_NAME || "pact-events";
+	const stub = env.PACT_AGGREGATOR.getByName(objectName);
 	return stub;
 }
 

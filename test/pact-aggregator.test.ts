@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { PactAggregator } from '../src/pact-aggregator';
 import type { PactEventData } from '../src/types';
 import { mockTime, now } from '../src/time-utils';
 import { expectTimestampToBeRecent, createUniqueTestId, createPactEventData } from './test-utilities';
