@@ -14,6 +14,7 @@ export interface WebhookPayload {
 
 export interface PactEventData {
 	pacticipant: string;
+	pacticipantVersionNumber: string;
 	eventType: string;
 	provider: string;
 	consumer: string;

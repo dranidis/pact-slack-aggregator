@@ -52,6 +52,7 @@ describe('PactAggregator', () => {
 		it('should process events correctly', async () => {
 			const testEvent: PactEventData = {
 				pacticipant: 'TestProvider',
+				pacticipantVersionNumber: '1.0.0',
 				eventType: 'provider_verification_published',
 				provider: 'TestProvider',
 				consumer: 'TestConsumer',

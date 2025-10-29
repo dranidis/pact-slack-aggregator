@@ -48,6 +48,7 @@ export function createUniqueTestId(prefix = 'test') {
 export function createPactEventData(overrides: Partial<PactEventData> = {}): PactEventData {
 	return {
 		pacticipant: 'TestProvider',
+		pacticipantVersionNumber: '1.0.0',
 		eventType: 'provider_verification_published',
 		provider: 'TestProvider',
 		consumer: 'TestConsumer',

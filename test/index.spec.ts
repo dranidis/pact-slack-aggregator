@@ -359,6 +359,81 @@ Pact publications: 1`;
 			}
 		});
 	});
+
+	describe('Summary message grouping', () => {
+		it('should group summary messages by pacticipant version number', async () => {
+			const events = [
+				{
+					eventType: 'provider_verification_published',
+					providerName: 'ServiceA',
+					consumerName: 'ClientX',
+					verificationResultUrl: 'https://pact.example.com/results/1',
+					pactUrl: 'https://pact.example.com/pacts/clientx-servicea',
+					githubVerificationStatus: 'success',
+					consumerVersionBranch: 'main',
+					providerVersionBranch: 'main',
+					consumerVersionNumber: 'version1',
+					providerVersionNumber: 'A1providerVersion'
+				},
+				{
+					eventType: 'provider_verification_published',
+					providerName: 'ServiceA',
+					consumerName: 'ClientY',
+					verificationResultUrl: 'https://pact.example.com/results/2',
+					pactUrl: 'https://pact.example.com/pacts/clienty-servicea',
+					githubVerificationStatus: 'success',
+					consumerVersionBranch: 'develop',
+					providerVersionBranch: 'main',
+					consumerVersionNumber: 'version2',
+					providerVersionNumber: 'A1providerVersion'
+				},
+				{
+					eventType: 'provider_verification_published',
+					providerName: 'ServiceA',
+					consumerName: 'ClientZ',
+					verificationResultUrl: 'https://pact.example.com/results/3',
+					pactUrl: 'https://pact.example.com/pacts/clientz-serviceb',
+					githubVerificationStatus: 'success',
+					consumerVersionBranch: 'main',
+					providerVersionBranch: 'main',
+					consumerVersionNumber: 'version3',
+					providerVersionNumber: 'A2providerVersion'
+				}
+			];
+
+			const currentMockTime = 1000000000000; // Fixed timestamp
+			mockTime(() => currentMockTime);
+
+			// Send all events
+			for (const event of events) {
+				const response = await sendEvent(event);
+				expect(response.status).toBe(200);
+			}
+
+			mockTime(() => currentMockTime + env.MINUTE_BUCKET_MS + 1);
+
+			// Trigger batch processing
+			const triggerResponse = await trigger();
+			expect(triggerResponse.status).toBe(200);
+
+			// Wait for processing to complete
+			await new Promise(resolve => setTimeout(resolve, 100));
+
+			// Verify Slack summary messages
+			const summaryMessages = slackCalls.filter(call => call.text?.startsWith('*'));
+			expect(summaryMessages.length).toBe(2); // Two summaries expected
+
+			// first summary for ServiceA version A1providerVersion
+			const summary1 = summaryMessages.find(msg => msg.text?.includes('A1providerVersion'));
+			expect(summary1).toBeDefined();
+			expect(summary1?.text).toContain('Pact verifications: ✅2');
+
+			// second summary for ServiceA version A2providerVersion
+			const summary2 = summaryMessages.find(msg => msg.text?.includes('A2providerVersion'));
+			expect(summary2).toBeDefined();
+			expect(summary2?.text).toContain('Pact verifications: ✅1');
+		});
+	});
 });
 
 async function sendEvent(event?: WebhookPayload) {

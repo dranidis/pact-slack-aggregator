@@ -56,6 +56,7 @@ export default {
 
 			const eventData: PactEventData = {
 				pacticipant,
+				pacticipantVersionNumber: getPacticipantVersionNumber(eventType, providerVersionNumber, consumerVersionNumber),
 				eventType,
 				provider: providerName,
 				consumer: consumerName,
@@ -98,6 +99,18 @@ function getPacticipant(eventType: string, provider: string, consumer: string) {
 	}
 }
 
+function getPacticipantVersionNumber(eventType: string, providerVersionNumber?: string, consumerVersionNumber?: string): string {
+	switch (eventType) {
+		case "provider_verification_published":
+			return providerVersionNumber ?? "unknown";
+		case "contract_content_changed":
+		case "contract_requiring_verification_published":
+			return consumerVersionNumber ?? "unknown";
+		default:
+			throw new Error(`Unknown event type: ${eventType}`);
+	}
+}
+
 async function processAllBatches(env: Env) {
 	const processedEvents: StoredPactEvent[] = await getPactAggregatorStub(env).processBatches();
 
@@ -111,14 +124,16 @@ async function postSummaryToSlack(env: Env, events: StoredPactEvent[]) {
 
 	if (events.length === 0) return;
 
-	// Group events by pacticipant
+	// Group events by pacticipant version number
 	const grouped = events.reduce((acc: Record<string, StoredPactEvent[]>, e: StoredPactEvent) => {
-		acc[e.pacticipant] = acc[e.pacticipant] || [];
-		acc[e.pacticipant].push(e);
+		const key = `${e.pacticipant}:${e.pacticipantVersionNumber}`;
+		acc[key] = acc[key] || [];
+		acc[key].push(e);
 		return acc;
 	}, {});
 
-	for (const [pacticipant, evts] of Object.entries(grouped)) {
+	for (const [key, evts] of Object.entries(grouped)) {
+		const [pacticipant] = key.split(":");
 		const verifications = evts.filter((e) =>
 			e.eventType === "provider_verification_published");
 		const publications = evts.filter((e) =>
