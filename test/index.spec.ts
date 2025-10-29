@@ -264,7 +264,7 @@ Pact publications: 1`;
 			}
 		});
 
-		it('should not send Slack message when triggered within quiet period', async () => {
+		it('should not send Slack message when triggered within quiet period for an existing rovider version number', async () => {
 			try {
 				let currentMockTime = 1000000000000; // Fixed timestamp
 				mockTime(() => currentMockTime);
@@ -288,6 +288,40 @@ Pact publications: 1`;
 				await new Promise(resolve => setTimeout(resolve, 100));
 				// Verify NO Slack message was sent (should be empty because we're still in quiet period)
 				expect(slackCalls.length).toBe(0);
+			} finally {
+				// Always reset time after test
+				resetTime();
+			}
+		});
+
+
+		it('should send Slack message when triggered within quiet period for a nonexisting provider version number', async () => {
+			try {
+				let currentMockTime = 1000000000000; // Fixed timestamp
+				mockTime(() => currentMockTime);
+
+				// send a trigger to set last process time
+				await trigger();
+				// Send an event
+				await sendEvent();
+				// move time to next bucket and send another event
+				currentMockTime += env.MINUTE_BUCKET_MS + 1; // +1 minute
+				mockTime(() => currentMockTime);
+
+				const event = createWebhookPayload();
+				event.providerVersionNumber = 'nonexistingversion12345';
+				await sendEvent(event);
+
+				// Move time forward to just before QUIET_PERIOD_MS expires
+				const quietPeriodMs = env.QUIET_PERIOD_MS;
+				mockTime(() => currentMockTime + quietPeriodMs - 1); // 1ms before quiet period expires
+				// Trigger batch processing
+				await trigger();
+
+				// Wait for processing to complete
+				await new Promise(resolve => setTimeout(resolve, 100));
+				// Verify NO Slack message was sent (should be empty because we're still in quiet period)
+				expect(slackCalls.length).toBe(2);
 			} finally {
 				// Always reset time after test
 				resetTime();

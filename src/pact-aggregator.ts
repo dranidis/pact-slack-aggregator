@@ -40,8 +40,22 @@ export class PactAggregator extends DurableObject<Env> {
 			const timeSinceLastProcess = currentTime - await this.getLastProcessTime();			// Don't process if within quiet period unless 5 minutes have passed since last process
 
 			if (timeSinceLastEvent < this.env.QUIET_PERIOD_MS && timeSinceLastProcess < this.env.MAX_TIME_BEFORE_FLUSHING) {
-				console.log(`Skipping processing: within quiet period (${timeSinceLastEvent}ms since last event) and less than 5 minutes since last process (${timeSinceLastProcess}ms)`);
-				return [];
+				// get all events
+				// check that the provider version number of the last event is the same with one of the other events
+				const allCurrentEvents = await this.getEvents();
+				const lastEvent = allCurrentEvents.get(`events:${currentMinute}`)?.slice(-1)[0];
+
+				if (lastEvent) {
+					const hasSameProviderVersion = Array.from(allCurrentEvents.values()).some(eventList =>
+						eventList.some(event =>
+							event.providerVersionNumber === lastEvent.providerVersionNumber
+							&& event !== lastEvent
+						));
+					if (hasSameProviderVersion) {
+						console.log(`Skipping processing: within quiet period (${timeSinceLastEvent}ms since last event) and less than 5 minutes since last process (${timeSinceLastProcess}ms)`);
+						return [];
+					}
+				}
 			}
 
 			let allEvents: StoredPactEvent[] = [];
