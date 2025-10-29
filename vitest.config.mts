@@ -21,5 +21,11 @@ export default defineWorkersConfig({
 		sequence: {
 			concurrent: false,
 		},
+		coverage: {
+			provider: 'istanbul',
+			reporter: ['text', 'html', 'lcov'],
+			reportsDirectory: './coverage',
+			exclude: ['dist', 'tests', 'node_modules'],
+		},
 	},
 });
