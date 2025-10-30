@@ -264,97 +264,246 @@ Pact publications: 1`;
 			}
 		});
 
-		it('should not send Slack message when triggered within quiet period for an existing rovider version number', async () => {
+		it('should consolidate events with same pacticipantVersionNumber from different buckets', async () => {
 			try {
 				let currentMockTime = 1000000000000; // Fixed timestamp
 				mockTime(() => currentMockTime);
 
-				// send a trigger to set last process time
-				await trigger();
-				// Send an event
-				await sendEvent();
-				// move time to next bucket and send another event
-				currentMockTime += env.MINUTE_BUCKET_MS + 1; // +1 minute
-				mockTime(() => currentMockTime);
-				await sendEvent();
+				// Send event with different provider version "differentVersion456"
+				const eventDifferent = createWebhookPayload();
+				eventDifferent.providerVersionNumber = 'differentVersion456';
+				eventDifferent.providerName = 'ServiceB';
+				eventDifferent.consumerName = 'ConsumerZ';
+				await sendEvent(eventDifferent);
 
-				// Move time forward to just before QUIET_PERIOD_MS expires
-				const quietPeriodMs = env.QUIET_PERIOD_MS;
-				mockTime(() => currentMockTime + quietPeriodMs - 1); // 1ms before quiet period expires
-				// Trigger batch processing
+				// Move time forward a bit so eventDifferent will be aged before event1
+				currentMockTime += 2 * 60 * 1000; // 2 minutes later
+				mockTime(() => currentMockTime);
+
+				// Send first event with provider version "version123"
+				const event1 = createWebhookPayload();
+				event1.providerVersionNumber = 'version123';
+				event1.providerName = 'ServiceA';
+				event1.consumerName = 'ConsumerX';
+				await sendEvent(event1);
+
+				// Move to next bucket (1 minute later)
+				currentMockTime += env.MINUTE_BUCKET_MS + 1;
+				mockTime(() => currentMockTime);
+
+				// Send second event with same provider version in different bucket
+				const event2 = createWebhookPayload();
+				event2.providerVersionNumber = 'version123'; // Same version
+				event2.providerName = 'ServiceA'; // Same provider
+				event2.consumerName = 'ConsumerY'; // Different consumer
+				await sendEvent(event2);
+
+				// Move time forward so eventDifferent is aged (> 1 min) but event1 and event2 are not aged (< 1 min)
+				// Timeline: eventDifferent at 0, event1 at 2min, event2 at ~3min, trigger at ~2.5min
+				// eventDifferent: 2.5min old > 1min → aged, should be processed
+				// event1: 0.5min old < 1min → not aged, should be consolidated
+				// event2: ~0min old < 1min → not aged, should be consolidated
+				const startTime = 1000000000000;
+				currentMockTime = startTime + 2 * 60 * 1000 + 30 * 1000; // 2.5 minutes from start
+				mockTime(() => currentMockTime);
+
+				// Trigger processing
 				await trigger();
 
 				// Wait for processing to complete
 				await new Promise(resolve => setTimeout(resolve, 100));
-				// Verify NO Slack message was sent (should be empty because we're still in quiet period)
+
+				// With consolidation logic:
+				// - eventDifferent (differentVersion456) stays in bucket1 and gets processed -> 2 Slack messages
+				// - event1 should move to bucket2 (same version as event2) -> no Slack messages for these
+				expect(slackCalls.length).toBe(2); // 1 summary + 1 thread for eventDifferent
+
+				// Verify the Slack message is for the different version event
+				const summaryMessage = slackCalls.find(call => call.text?.startsWith('*'));
+				expect(summaryMessage?.text).toContain('ServiceB');
+				expect(summaryMessage?.text).toContain('Pact verifications: ✅1');
+
+				const threadMessage = slackCalls.find(call => !call.text?.startsWith('*'));
+				expect(threadMessage?.text).toContain('ConsumerZ');
+
+				// Verify events are consolidated in storage by checking debug info
+				const debugResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
+				expect(debugResponse.status).toBe(200);
+				const debugData: DebugInfo = await debugResponse.json();
+
+				// Should have 2 events in the most recent bucket (event1 and event2 consolidated)
+				expect(debugData.totalEvents).toBe(2);
+			} finally {
+				resetTime();
+			}
+		});
+
+		it('should flush old events even when newer events have same pacticipantVersionNumber', async () => {
+			try {
+				const startTime = 1000000000000; // Fixed timestamp
+				let currentMockTime = startTime;
+				mockTime(() => currentMockTime);
+
+				// Send first event with provider version "version123" at minute 0
+				const event1 = createWebhookPayload();
+				event1.providerVersionNumber = 'version123';
+				event1.providerName = 'ServiceA';
+				event1.consumerName = 'Consumer1';
+				await sendEvent(event1);
+
+				currentMockTime += env.MINUTE_BUCKET_MS; // +1 minute
+				mockTime(() => currentMockTime);
+
+				const event2 = createWebhookPayload();
+				event2.providerVersionNumber = 'version123'; // Same version
+				event2.providerName = 'ServiceA';
+				event2.consumerName = 'Consumer2';
+				await sendEvent(event2);
+
+				await trigger();
+				await new Promise(resolve => setTimeout(resolve, 100));
+
+				expect(slackCalls.length).toBe(0);
+
+				currentMockTime += env.MINUTE_BUCKET_MS; // +1 minute (total +2 minutes)
+				mockTime(() => currentMockTime);
+
+				const event3 = createWebhookPayload();
+				event3.providerVersionNumber = 'version123'; // Same version
+				event3.providerName = 'ServiceA';
+				event3.consumerName = 'Consumer3';
+				await sendEvent(event3);
+
+				currentMockTime += env.MINUTE_BUCKET_MS; // +1 minute (total +3 minutes)
+				mockTime(() => currentMockTime);
+
+				const event4 = createWebhookPayload();
+				event4.providerVersionNumber = 'version123'; // Same version
+				event4.providerName = 'ServiceA';
+				event4.consumerName = 'Consumer4';
+				await sendEvent(event4);
+
+				await trigger();
+				await new Promise(resolve => setTimeout(resolve, 100));
+
+				expect(slackCalls.length).toBe(0);
+
+				currentMockTime += env.MINUTE_BUCKET_MS; // +1 minute (total +4 minutes)
+				mockTime(() => currentMockTime);
+
+				const event5 = createWebhookPayload();
+				event5.providerVersionNumber = 'version123'; // Same version
+				event5.providerName = 'ServiceA';
+				event5.consumerName = 'Consumer5';
+				await sendEvent(event5);
+
+				currentMockTime += env.MINUTE_BUCKET_MS; // +1 minute (total +5 minutes)
+				mockTime(() => currentMockTime);
+
+				const event6 = createWebhookPayload();
+				event6.providerVersionNumber = 'version123'; // Same version
+				event6.providerName = 'ServiceA';
+				event6.consumerName = 'Consumer6';
+				await sendEvent(event6);
+
+				await trigger();
+				await new Promise(resolve => setTimeout(resolve, 100));
+
+				expect(slackCalls.length).toBe(2); // first event is published here
+
+				console.log('Slack calls:', slackCalls.length, slackCalls.map(call => call.text));
+
+				const summaryMessages = slackCalls.filter(call => call.text?.startsWith('*'));
+				expect(summaryMessages.length).toBe(1);
+
+				// Each summary should show 1 verification (not consolidated)
+				summaryMessages.forEach(summary => {
+					expect(summary.text).toContain('Pact verifications: ✅1');
+					expect(summary.text).toContain('ServiceA');
+				});
+
+				const threadMessages = slackCalls.filter(call => !call.text?.startsWith('*'));
+				expect(threadMessages.length).toBe(1);
+				expect(threadMessages[0].text).toContain('Consumer1');
+
+				// Verify debug info shows remaining events
+				const debugResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
+				expect(debugResponse.status).toBe(200);
+				const debugData: DebugInfo = await debugResponse.json();
+
+				// Should have 2 events remaining (events 3-4 not old enough to be processed yet)
+				expect(debugData.totalEvents).toBe(5);
+			} finally {
+				resetTime();
+			}
+		});
+
+		it('should not publish any events (except old) with pacticipant version number for which messages were sent just before trigger at the next minute', async () => {
+			try {
+				const currentMockTime = 0; // Fixed timestamp
+				mockTime(() => currentMockTime);
+
+				// Send event with provider version "version123"
+				const event1 = createWebhookPayload();
+				event1.providerVersionNumber = 'version123';
+				event1.providerName = 'ServiceA';
+				event1.consumerName = 'Consumer1';
+				await sendEvent(event1);
+
+				mockTime(() => currentMockTime + env.MINUTE_BUCKET_MS - env.QUIET_PERIOD_MS + 1);
+
+				// Send event with provider version "version123"
+				const event2 = createWebhookPayload();
+				event2.providerVersionNumber = 'version123';
+				event2.providerName = 'ServiceA';
+				event2.consumerName = 'Consumer2';
+				await sendEvent(event2);
+
+				mockTime(() => currentMockTime + env.MINUTE_BUCKET_MS);
+				// Trigger processing
+				await trigger();
+
+				// Wait for processing to complete
+				await new Promise(resolve => setTimeout(resolve, 100));
+
+				// Verify NO Slack message was sent as the event is too recent
 				expect(slackCalls.length).toBe(0);
 			} finally {
-				// Always reset time after test
 				resetTime();
 			}
 		});
 
-
-		it('should send Slack message when triggered within quiet period for a nonexisting provider version number', async () => {
+		it('should publish events with pacticipant version number for which messages were sent before the quiet', async () => {
 			try {
-				let currentMockTime = 1000000000000; // Fixed timestamp
+				const currentMockTime = 0; // Fixed timestamp
 				mockTime(() => currentMockTime);
 
-				// send a trigger to set last process time
-				await trigger();
-				// Send an event
-				await sendEvent();
-				// move time to next bucket and send another event
-				currentMockTime += env.MINUTE_BUCKET_MS + 1; // +1 minute
-				mockTime(() => currentMockTime);
+				// Send event with provider version "version123"
+				const event1 = createWebhookPayload();
+				event1.providerVersionNumber = 'version123';
+				event1.providerName = 'ServiceA';
+				event1.consumerName = 'Consumer1';
+				await sendEvent(event1);
 
-				const event = createWebhookPayload();
-				event.providerVersionNumber = 'nonexistingversion12345';
-				await sendEvent(event);
+				mockTime(() => currentMockTime + env.MINUTE_BUCKET_MS - env.QUIET_PERIOD_MS);
 
-				// Move time forward to just before QUIET_PERIOD_MS expires
-				const quietPeriodMs = env.QUIET_PERIOD_MS;
-				mockTime(() => currentMockTime + quietPeriodMs - 1); // 1ms before quiet period expires
-				// Trigger batch processing
-				await trigger();
+				// Send event with provider version "version123"
+				const event2 = createWebhookPayload();
+				event2.providerVersionNumber = 'version123';
+				event2.providerName = 'ServiceA';
+				event2.consumerName = 'Consumer2';
+				await sendEvent(event2);
 
-				// Wait for processing to complete
-				await new Promise(resolve => setTimeout(resolve, 100));
-				// Verify NO Slack message was sent (should be empty because we're still in quiet period)
-				expect(slackCalls.length).toBe(2);
-			} finally {
-				// Always reset time after test
-				resetTime();
-			}
-		});
-
-		it('should send Slack message when MAX_TIME_BEFORE_FLUSHING expires even within quiet period', async () => {
-			try {
-				let currentMockTime = 1000000000000; // Fixed timestamp
-				mockTime(() => currentMockTime);
-
-				// send a trigger to set last process time
-				await trigger();
-				// Send an event
-				await sendEvent();
-				// move time to just before MAX_TIME_BEFORE_FLUSHING expires
-				currentMockTime += env.MAX_TIME_BEFORE_FLUSHING;
-				mockTime(() => currentMockTime);
-				await sendEvent();
-
-				// Move time forward to just before QUIET_PERIOD_MS expires
-				const quietPeriodMs = env.QUIET_PERIOD_MS;
-				mockTime(() => currentMockTime + quietPeriodMs - 1); // 1ms before quiet period expires
-				// Trigger batch processing
+				mockTime(() => currentMockTime + env.MINUTE_BUCKET_MS);
+				// Trigger processing
 				await trigger();
 
 				// Wait for processing to complete
 				await new Promise(resolve => setTimeout(resolve, 100));
 
-				// Verify Slack message was sent despite being in quiet period due to MAX_TIME_BEFORE_FLUSHING
+				// Verify NO Slack message was sent as the event is too recent
 				expect(slackCalls.length).toBe(2);
 			} finally {
-				// Always reset time after test
 				resetTime();
 			}
 		});
@@ -410,7 +559,7 @@ Pact publications: 1`;
 				expect(response.status).toBe(200);
 			}
 
-			mockTime(() => currentMockTime + env.MINUTE_BUCKET_MS + 1);
+			mockTime(() => currentMockTime + env.MAX_TIME_BEFORE_FLUSHING + 30 * 1000);
 
 			// Trigger batch processing
 			const triggerResponse = await trigger();
