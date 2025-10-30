@@ -3,12 +3,19 @@
 import eslint from '@eslint/js';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
-// @ts-expect-error not typed
 import { dirname } from 'path';
-// @ts-expect-error not typed
 import { fileURLToPath } from 'url';
 
 export default defineConfig(
+  {
+    ignores: [
+      '.wrangler/**',
+      'dist/**',
+      'node_modules/**',
+      '**/*.min.js',
+      'coverage/**'
+    ],
+  },
   eslint.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   tseslint.configs.stylisticTypeChecked,
