@@ -1,7 +1,7 @@
 
 import { now, formatTime as timeUtilsFormatTime } from "./time-utils";
 import type { WebhookPayload, PactEventData, StoredPactEvent, DebugInfo, SlackPostMessageResponse, SlackPostMessageRequest } from './types';
-import { pascalCaseToDash } from "./utils";
+import { pascalCaseToDash, getVerificationId } from "./utils";
 export { PactAggregator } from './pact-aggregator';
 
 // Emoji constants
@@ -186,7 +186,11 @@ function createThreadText(env: Env, publications: StoredPactEvent[], verificatio
 
 	if (verifications.length > 0) {
 		threadDetails += "Verified consumers:\n";
-		verifications.sort((a, b) => a.consumer.localeCompare(b.consumer));
+		// Sort by consumer name first, then by verification ID (last number in resultUrl)
+		verifications.sort((a, b) =>
+			a.consumer.localeCompare(b.consumer) ||
+			getVerificationId(a.resultUrl) - getVerificationId(b.resultUrl)
+		);
 	}
 
 	for (const e of verifications) {

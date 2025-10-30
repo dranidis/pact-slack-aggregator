@@ -59,12 +59,15 @@ export function createPactEventData(overrides: Partial<PactEventData> = {}): Pac
 	};
 }
 
+let auto_id = 0;
+
 export function createWebhookPayload(): WebhookPayload {
+	auto_id += 1;
 	return {
 		eventType: 'provider_verification_published',
 		providerName: 'TestProvider',
 		consumerName: 'TestConsumer',
-		verificationResultUrl: 'https://example.com/verification',
+		verificationResultUrl: `https://example.com/verification/results/${auto_id}`,
 		pactUrl: 'https://example.com/pact',
 		githubVerificationStatus: 'success',
 		consumerVersionBranch: 'main',

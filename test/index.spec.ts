@@ -135,7 +135,7 @@ describe('Pact Slack Aggregator Worker', () => {
 						eventType: 'provider_verification_published',
 						providerName: 'UserService',
 						consumerName: 'WebApp',
-						verificationResultUrl: 'https://pact.example.com/results/success',
+						verificationResultUrl: 'https://pact.example.com/results/1',
 						pactUrl: 'https://pact.example.com/pacts/webapp-userservice',
 						githubVerificationStatus: 'success',
 						consumerVersionBranch: 'main',
@@ -147,7 +147,7 @@ describe('Pact Slack Aggregator Worker', () => {
 						eventType: 'provider_verification_published',
 						providerName: 'PaymentService',
 						consumerName: 'MobileApp',
-						verificationResultUrl: 'https://pact.example.com/results/failure',
+						verificationResultUrl: 'https://pact.example.com/results/2',
 						pactUrl: 'https://pact.example.com/pacts/mobileapp-paymentservice',
 						githubVerificationStatus: 'failure',
 						consumerVersionBranch: 'feature/payment-update',
@@ -215,12 +215,12 @@ describe('Pact Slack Aggregator Worker', () => {
 					`*UserService* <${env.GITHUB_BASE_URL}/user-service/tree/main|main> <${env.GITHUB_BASE_URL}/user-service/commit/5d54920bee2bea8501d604185212aafds8081950|5d54920>
 Pact verifications: ✅1`;
 				const userServiceThread =
-					`✅ <https://pact.example.com/results/success|Details> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
+					`✅ <https://pact.example.com/results/1|Details> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
 				const paymentServiceSummary =
 					`*PaymentService* <${env.GITHUB_BASE_URL}/payment-service/tree/main|main> <${env.GITHUB_BASE_URL}/payment-service/commit/50bee2bea8501d604185212aa7808195080d5492|50bee2b>
 Pact verifications: 💥1`;
 				const paymentServiceThread =
-					`💥 <https://pact.example.com/results/failure|Details> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
+					`💥 <https://pact.example.com/results/2|Details> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
 				const adminPanelSummary =
 					`*AdminPanel* <${env.GITHUB_BASE_URL}/admin-panel/tree/feature/new-notifications|feature/new-notifications> <${env.GITHUB_BASE_URL}/admin-panel/commit/5d549e2bea185212aa78081950838501d60420be|5d549e2>
 Pact publications: 1`;
