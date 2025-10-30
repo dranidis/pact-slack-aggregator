@@ -4,6 +4,7 @@
 
 // Default implementation uses Date.now()
 let getCurrentTime = (): number => Date.now();
+resetTime();
 
 /**
  * Get the current timestamp

@@ -5,6 +5,10 @@ import { createWebhookPayload, expectTimestampToBeRecent } from './test-utilitie
 import { DebugInfo, WebhookPayload } from '../src/types';
 import { mockTime, resetTime } from '../src/time-utils';
 
+
+const SUCCESS_EMOJI = "✅";
+const FAILURE_EMOJI = "😢";
+
 interface SlackCallMock {
 	text?: string;
 	blocks?: {
@@ -213,14 +217,14 @@ describe('Pact Slack Aggregator Worker', () => {
 				// Verify messages contain our test data
 				const userServiceSummary =
 					`*UserService* <${env.GITHUB_BASE_URL}/user-service/tree/main|main> <${env.GITHUB_BASE_URL}/user-service/commit/5d54920bee2bea8501d604185212aafds8081950|5d54920>
-Pact verifications: ✅1`;
+Pact verifications: ${SUCCESS_EMOJI}1`;
 				const userServiceThread =
-					`✅ <https://pact.example.com/results/1|Details> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
+					`${SUCCESS_EMOJI} <https://pact.example.com/results/1|Details> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
 				const paymentServiceSummary =
 					`*PaymentService* <${env.GITHUB_BASE_URL}/payment-service/tree/main|main> <${env.GITHUB_BASE_URL}/payment-service/commit/50bee2bea8501d604185212aa7808195080d5492|50bee2b>
-Pact verifications: 💥1`;
+Pact verifications: ${FAILURE_EMOJI}1`;
 				const paymentServiceThread =
-					`💥 <https://pact.example.com/results/2|Details> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
+					`${FAILURE_EMOJI} <https://pact.example.com/results/2|Details> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
 				const adminPanelSummary =
 					`*AdminPanel* <${env.GITHUB_BASE_URL}/admin-panel/tree/feature/new-notifications|feature/new-notifications> <${env.GITHUB_BASE_URL}/admin-panel/commit/5d549e2bea185212aa78081950838501d60420be|5d549e2>
 Pact publications: 1`;
@@ -344,12 +348,21 @@ Pact publications: 1`;
 				let currentMockTime = startTime;
 				mockTime(() => currentMockTime);
 
+				// send initially two events to check sorting of messages as well
 				// Send first event with provider version "version123" at minute 0
+				const event0 = createWebhookPayload();
+				event0.providerVersionNumber = 'version123';
+				event0.providerName = 'ServiceA';
+				event0.consumerName = 'Consumer';
+
+				await sendEvent(event0);
 				const event1 = createWebhookPayload();
 				event1.providerVersionNumber = 'version123';
 				event1.providerName = 'ServiceA';
-				event1.consumerName = 'Consumer1';
+				event1.consumerName = 'Consumer';
 				await sendEvent(event1);
+
+				const expectedUrl = event1.verificationResultUrl;
 
 				currentMockTime += env.MINUTE_BUCKET_MS; // +1 minute
 				mockTime(() => currentMockTime);
@@ -357,7 +370,7 @@ Pact publications: 1`;
 				const event2 = createWebhookPayload();
 				event2.providerVersionNumber = 'version123'; // Same version
 				event2.providerName = 'ServiceA';
-				event2.consumerName = 'Consumer2';
+				event2.consumerName = 'Consumer';
 				await sendEvent(event2);
 
 				await trigger();
@@ -371,7 +384,7 @@ Pact publications: 1`;
 				const event3 = createWebhookPayload();
 				event3.providerVersionNumber = 'version123'; // Same version
 				event3.providerName = 'ServiceA';
-				event3.consumerName = 'Consumer3';
+				event3.consumerName = 'Consumer';
 				await sendEvent(event3);
 
 				currentMockTime += env.MINUTE_BUCKET_MS; // +1 minute (total +3 minutes)
@@ -380,7 +393,7 @@ Pact publications: 1`;
 				const event4 = createWebhookPayload();
 				event4.providerVersionNumber = 'version123'; // Same version
 				event4.providerName = 'ServiceA';
-				event4.consumerName = 'Consumer4';
+				event4.consumerName = 'Consumer';
 				await sendEvent(event4);
 
 				await trigger();
@@ -394,7 +407,7 @@ Pact publications: 1`;
 				const event5 = createWebhookPayload();
 				event5.providerVersionNumber = 'version123'; // Same version
 				event5.providerName = 'ServiceA';
-				event5.consumerName = 'Consumer5';
+				event5.consumerName = 'Consumer';
 				await sendEvent(event5);
 
 				currentMockTime += env.MINUTE_BUCKET_MS; // +1 minute (total +5 minutes)
@@ -403,7 +416,7 @@ Pact publications: 1`;
 				const event6 = createWebhookPayload();
 				event6.providerVersionNumber = 'version123'; // Same version
 				event6.providerName = 'ServiceA';
-				event6.consumerName = 'Consumer6';
+				event6.consumerName = 'Consumer';
 				await sendEvent(event6);
 
 				await trigger();
@@ -418,13 +431,15 @@ Pact publications: 1`;
 
 				// Each summary should show 1 verification (not consolidated)
 				summaryMessages.forEach(summary => {
-					expect(summary.text).toContain('Pact verifications: ✅1');
+					expect(summary.text).toContain('Pact verifications: ✅2');
 					expect(summary.text).toContain('ServiceA');
 				});
 
 				const threadMessages = slackCalls.filter(call => !call.text?.startsWith('*'));
+
+				console.log('Thread messages:', threadMessages);
 				expect(threadMessages.length).toBe(1);
-				expect(threadMessages[0].text).toContain('Consumer1');
+				expect(threadMessages[0].text).toContain(expectedUrl);
 
 				// Verify debug info shows remaining events
 				const debugResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);

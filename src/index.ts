@@ -6,7 +6,7 @@ export { PactAggregator } from './pact-aggregator';
 
 // Emoji constants
 const SUCCESS_EMOJI = "✅";
-const FAILURE_EMOJI = "💥";
+const FAILURE_EMOJI = "😢";
 
 export default {
 	async fetch(request: Request, env: Env) {
