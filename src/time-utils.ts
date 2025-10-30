@@ -34,9 +34,3 @@ export function getMinuteBucket(timestamp: number, bucketDuration: number): stri
 	return Math.floor(timestamp / bucketDuration).toString();
 }
 
-/**
- * Format a timestamp for logging
- */
-export function formatTime(timestamp: number): string {
-	return new Date(timestamp).toLocaleTimeString();
-}

@@ -1,5 +1,5 @@
 
-import { now, formatTime as timeUtilsFormatTime } from "./time-utils";
+import { now } from "./time-utils";
 import type { WebhookPayload, PactEventData, StoredPactEvent, DebugInfo, SlackPostMessageResponse, SlackPostMessageRequest } from './types';
 import { pascalCaseToDash, getVerificationId } from "./utils";
 export { PactAggregator } from './pact-aggregator';
@@ -81,11 +81,32 @@ export default {
 
 	// Runs automatically (Cloudflare Cron). Schedule defined in wrangler.jsonc
 	scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		const currentTime = now();
-		console.log("🕒 Scheduled summary check at " + timeUtilsFormatTime(currentTime));
-		ctx.waitUntil(processAllBatches(env));
+		if (shouldProcessAtCurrentTime(now())) {
+			ctx.waitUntil(processAllBatches(env));
+		}
 	},
 };
+
+function shouldProcessAtCurrentTime(currentTime: number): boolean {
+	const date = new Date(currentTime);
+	const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+	const hour = date.getHours(); // 0-23
+	const minute = date.getMinutes(); // 0-59
+
+	const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday to Friday
+	const isWorkingHours = hour >= 9 && hour < 20; // 9 AM to 8 PM
+
+	if (isWeekday && isWorkingHours) {
+		// Working hours (9 AM - 8 PM, Mon-Fri): every 2 minutes
+		return true; // Cron runs every 2 minutes, so always process
+	} else if (isWeekday && !isWorkingHours) {
+		// Off hours on weekdays: every hour (at minute 0)
+		return minute === 0;
+	} else {
+		// Weekends (non-working days): every 4 hours (at 00:00, 04:00, 08:00, 12:00, 16:00)
+		return minute === 0 && hour % 4 === 0;
+	}
+}
 
 function getPacticipant(eventType: string, provider: string, consumer: string) {
 	switch (eventType) {
@@ -220,7 +241,7 @@ async function slackPost(env: Env, body: SlackPostMessageRequest) {
 			messageLength: body.text?.length
 		});
 	} else {
-		console.log("✅ Slack message sent successfully", { ts: json.ts, channel: body.channel });
+		console.log("✅ Slack message sent successfully", { ts: json.ts, channel: body.channel, text: body.text.substring(0, 30) + '...' });// Limit text length in logs
 	}
 	return json;
 }
