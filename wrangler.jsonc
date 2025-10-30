@@ -17,7 +17,7 @@
 		"MAX_TIME_BEFORE_FLUSHING": 300000, // if 5 minutes have passed since last processing, force processing even if quiet period not passed
 		"GITHUB_BASE_URL": "https://github.com/yourorganization", // Change to your GitHub Enterprise URL if applicable
 		// JSON string mapping pacticipants to GitHub repos for cases that are not PascalCase to dash
-		"PACTICIPANT_TO_REPO_MAP": "{\"BoUI\":\"someback\",\"SomeAPI\":\"someapi\"}",
+		"PACTICIPANT_TO_REPO_MAP": "{\"BoUI\":\"someback\",\"SomeAPI\":\"someapi\",\"FrontEnd\":\"frontend\"}",
 		"PACT_AGGREGATOR_NAME": "pact-events" // Default Durable
 	},
 	"durable_objects": {
