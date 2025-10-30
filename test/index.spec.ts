@@ -179,7 +179,7 @@ describe('Pact Slack Aggregator Worker', () => {
 				const extraEvent = {
 					eventType: 'provider_verification_published',
 					providerName: 'PaymentService2',
-					consumerName: 'MobileApp2',
+					consumerName: 'FrontEnd',
 					verificationResultUrl: 'https://pact.example.com/results/failure',
 					pactUrl: 'https://pact.example.com/pacts/mobileapp2-paymentservice2',
 					githubVerificationStatus: 'failure',
@@ -581,6 +581,75 @@ Pact publications: 1`;
 			const summary2 = summaryMessages.find(msg => msg.text?.includes('A2providerVersion'));
 			expect(summary2).toBeDefined();
 			expect(summary2?.text).toContain('Pact verifications: ✅1');
+		});
+	});
+
+	describe('Clear All functionality', () => {
+		it('should clear all stored data when clearAll is called', async () => {
+			// First, add some events and trigger processing to populate storage
+			const event1 = createWebhookPayload();
+			event1.consumerVersionNumber = 'version123';
+			event1.providerVersionNumber = 'providerVersion1';
+			event1.providerName = 'ServiceA';
+			event1.consumerName = 'ConsumerX';
+			await sendEvent(event1);
+
+			const event2 = createWebhookPayload();
+			event2.consumerVersionNumber = 'version456';
+			event2.providerVersionNumber = 'providerVersion2';
+			event2.providerName = 'ServiceB';
+			event2.consumerName = 'ConsumerY';
+			await sendEvent(event2);
+
+			// Trigger processing to create some processing stats
+			await trigger();
+
+			// Verify data exists
+			const debugResponseBefore = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
+			expect(debugResponseBefore.status).toBe(200);
+			const debugDataBefore: DebugInfo = await debugResponseBefore.json();
+
+			// Should have some data
+			expect(debugDataBefore.totalEvents).toBeGreaterThan(0);
+			expect(debugDataBefore.lastEventTime).toBeGreaterThan(0);
+
+			// Call clearAll via the debug endpoint with clear=true
+			const clearResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}&clear=true`);
+			expect(clearResponse.status).toBe(200);
+
+			// Verify all data is cleared
+			const debugResponseAfter = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
+			expect(debugResponseAfter.status).toBe(200);
+			const debugDataAfter: DebugInfo = await debugResponseAfter.json();
+
+			// All data should be reset to initial state
+			expect(debugDataAfter.totalEvents).toBe(0);
+			expect(debugDataAfter.lastEventTime).toBe(0);
+			expect(debugDataAfter.lastProcessTime).toBe(0);
+			expect(debugDataAfter.totalProcessedEvents).toBe(0);
+			expect(debugDataAfter.lastProcessedCount).toBe(0);
+			expect(Object.keys(debugDataAfter.eventBuckets)).toHaveLength(0);
+		});
+
+		it('should handle clearAll when no data exists', async () => {
+			// Call clearAll on empty storage
+			const clearResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}&clear=true`);
+			expect(clearResponse.status).toBe(200);
+
+			// Verify debug endpoint still works and returns empty state
+			const debugResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
+			expect(debugResponse.status).toBe(200);
+			const debugData: DebugInfo = await debugResponse.json();
+
+			expect(debugData.totalEvents).toBe(0);
+			expect(debugData.lastEventTime).toBe(0);
+			expect(debugData.lastProcessTime).toBe(0);
+		});
+
+		it('should require debug key for clearAll', async () => {
+			// Call clearAll without debug key
+			const clearResponse = await SELF.fetch('https://example.com/debug?clear=true');
+			expect(clearResponse.status).toBe(405); // No debug key, so it won't match debug endpoint
 		});
 	});
 });

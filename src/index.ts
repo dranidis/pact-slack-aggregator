@@ -122,8 +122,6 @@ async function processAllBatches(env: Env) {
 async function postSummaryToSlack(env: Env, events: StoredPactEvent[]) {
 	const slackChannel = env.SLACK_CHANNEL || "#pact-broker";
 
-	if (events.length === 0) return;
-
 	// Group events by pacticipant version number
 	const grouped = events.reduce((acc: Record<string, StoredPactEvent[]>, e: StoredPactEvent) => {
 		const key = `${e.pacticipant}:${e.pacticipantVersionNumber}`;
@@ -241,13 +239,13 @@ function createGithubLinks(env: Env, participant: string, branch?: string, commi
 
 function getPactAggregatorStub(env: Env) {
 	// console.log("Using PACT_AGGREGATOR_NAME:", env.PACT_AGGREGATOR_NAME);
-	const objectName = env.PACT_AGGREGATOR_NAME || "pact-events";
+	const objectName = env.PACT_AGGREGATOR_NAME;
 	const stub = env.PACT_AGGREGATOR.getByName(objectName);
 	return stub;
 }
 
 function mapPacticipantToRepo(env: Env, pacticipant: string) {
-	const mapped = env.PACTICIPANT_TO_REPO_MAP ? JSON.parse(env.PACTICIPANT_TO_REPO_MAP) as Record<string, string> : {};
+	const mapped = JSON.parse(env.PACTICIPANT_TO_REPO_MAP) as Record<string, string>;
 	if (mapped[pacticipant]) {
 		return mapped[pacticipant];
 	}
