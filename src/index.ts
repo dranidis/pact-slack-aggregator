@@ -1,7 +1,7 @@
 
 import { now } from "./time-utils";
 import type { PactWebhookPayload, PactEventData, StoredPactEventData, DebugInfo, SlackPostMessageResponse, SlackPostMessageRequest } from './types';
-import { pascalCaseToDash, getVerificationId } from "./utils";
+import { pascalCaseToDash, getVerificationId, extractPactUrlFromVerificationUrl } from "./utils";
 export { PactAggregator } from './pact-aggregator';
 
 // Emoji constants
@@ -216,7 +216,9 @@ function createThreadText(env: Env, publications: StoredPactEventData[], verific
 
 	for (const e of verifications) {
 		const { branchLink, githubLink } = createGithubLinks(env, e.consumer, e.consumerVersionBranch, e.consumerVersionNumber);
-		threadDetails += `- ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Details> *${e.consumer}* ${branchLink}${githubLink}\n`;
+		const pactUrl = extractPactUrlFromVerificationUrl(e.resultUrl);
+		const pactLink = pactUrl ? ` | <${pactUrl}|Pact>` : '';
+		threadDetails += `- ${e.status === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.resultUrl}|Results>${pactLink} *${e.consumer}* ${branchLink}${githubLink}\n`;
 	}
 	return threadDetails;
 }

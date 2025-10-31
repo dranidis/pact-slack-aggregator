@@ -139,7 +139,7 @@ describe('Pact Slack Aggregator Worker', () => {
 						eventType: 'provider_verification_published',
 						providerName: 'UserService',
 						consumerName: 'WebApp',
-						verificationResultUrl: 'https://pact.example.com/results/1',
+						verificationResultUrl: 'https://pact.example.com/verification-results/1',
 						pactUrl: 'https://pact.example.com/pacts/webapp-userservice',
 						githubVerificationStatus: 'success',
 						consumerVersionBranch: 'main',
@@ -151,7 +151,7 @@ describe('Pact Slack Aggregator Worker', () => {
 						eventType: 'provider_verification_published',
 						providerName: 'PaymentService',
 						consumerName: 'MobileApp',
-						verificationResultUrl: 'https://pact.example.com/results/2',
+						verificationResultUrl: 'https://pact.example.com/verification-results/2',
 						pactUrl: 'https://pact.example.com/pacts/mobileapp-paymentservice',
 						githubVerificationStatus: 'failure',
 						consumerVersionBranch: 'feature/payment-update',
@@ -184,7 +184,7 @@ describe('Pact Slack Aggregator Worker', () => {
 					eventType: 'provider_verification_published',
 					providerName: 'PaymentService2',
 					consumerName: 'FrontEnd',
-					verificationResultUrl: 'https://pact.example.com/results/failure',
+					verificationResultUrl: 'https://pact.example.com/verification-results/failure',
 					pactUrl: 'https://pact.example.com/pacts/mobileapp2-paymentservice2',
 					githubVerificationStatus: 'failure',
 					consumerVersionBranch: 'feature/payment-update2',
@@ -219,12 +219,12 @@ describe('Pact Slack Aggregator Worker', () => {
 					`*UserService* <${env.GITHUB_BASE_URL}/user-service/tree/main|main> <${env.GITHUB_BASE_URL}/user-service/commit/5d54920bee2bea8501d604185212aafds8081950|5d54920>
 Pact verifications: ${SUCCESS_EMOJI}1`;
 				const userServiceThread =
-					`${SUCCESS_EMOJI} <https://pact.example.com/results/1|Details> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
+					`${SUCCESS_EMOJI} <https://pact.example.com/verification-results/1|Results> | <https://pact.example.com|Pact> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
 				const paymentServiceSummary =
 					`*PaymentService* <${env.GITHUB_BASE_URL}/payment-service/tree/main|main> <${env.GITHUB_BASE_URL}/payment-service/commit/50bee2bea8501d604185212aa7808195080d5492|50bee2b>
 Pact verifications: ${FAILURE_EMOJI}1`;
 				const paymentServiceThread =
-					`${FAILURE_EMOJI} <https://pact.example.com/results/2|Details> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
+					`${FAILURE_EMOJI} <https://pact.example.com/verification-results/2|Results> | <https://pact.example.com|Pact> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
 				const adminPanelSummary =
 					`*AdminPanel* <${env.GITHUB_BASE_URL}/admin-panel/tree/feature/new-notifications|feature/new-notifications> <${env.GITHUB_BASE_URL}/admin-panel/commit/5d549e2bea185212aa78081950838501d60420be|5d549e2>
 Pact publications: 1`;
@@ -541,7 +541,7 @@ Pact publications: 1`;
 					eventType: 'provider_verification_published',
 					providerName: 'ServiceA',
 					consumerName: 'ClientX',
-					verificationResultUrl: 'https://pact.example.com/results/1',
+					verificationResultUrl: 'https://pact.example.com/verification-results/1',
 					pactUrl: 'https://pact.example.com/pacts/clientx-servicea',
 					githubVerificationStatus: 'success',
 					consumerVersionBranch: 'main',
@@ -553,7 +553,7 @@ Pact publications: 1`;
 					eventType: 'provider_verification_published',
 					providerName: 'ServiceA',
 					consumerName: 'ClientY',
-					verificationResultUrl: 'https://pact.example.com/results/2',
+					verificationResultUrl: 'https://pact.example.com/verification-results/2',
 					pactUrl: 'https://pact.example.com/pacts/clienty-servicea',
 					githubVerificationStatus: 'success',
 					consumerVersionBranch: 'develop',
@@ -565,7 +565,7 @@ Pact publications: 1`;
 					eventType: 'provider_verification_published',
 					providerName: 'ServiceA',
 					consumerName: 'ClientZ',
-					verificationResultUrl: 'https://pact.example.com/results/3',
+					verificationResultUrl: 'https://pact.example.com/verification-results/3',
 					pactUrl: 'https://pact.example.com/pacts/clientz-serviceb',
 					githubVerificationStatus: 'success',
 					consumerVersionBranch: 'main',
