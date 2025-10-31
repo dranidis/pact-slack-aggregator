@@ -2,7 +2,7 @@ import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloud
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import worker from '../src/index';
 import { createWebhookPayload, expectTimestampToBeRecent } from './test-utilities';
-import { DebugInfo, WebhookPayload } from '../src/types';
+import { DebugInfo, PactWebhookPayload } from '../src/types';
 import { mockTime, resetTime } from '../src/time-utils';
 
 
@@ -458,6 +458,13 @@ Pact publications: 1`;
 				const currentMockTime = 0; // Fixed timestamp
 				mockTime(() => currentMockTime);
 
+				// Send event with different provider version
+				const event0 = createWebhookPayload();
+				event0.providerVersionNumber = 'otherVersion789';
+				event0.providerName = 'ServiceA';
+				event0.consumerName = 'Consumer1';
+				await sendEvent(event0);
+
 				// Send event with provider version "version123"
 				const event1 = createWebhookPayload();
 				event1.providerVersionNumber = 'version123';
@@ -481,8 +488,11 @@ Pact publications: 1`;
 				// Wait for processing to complete
 				await new Promise(resolve => setTimeout(resolve, 100));
 
-				// Verify NO Slack message was sent as the event is too recent
-				expect(slackCalls.length).toBe(0);
+				// Verify NO Slack message was sent with recent provider version as the event is too recent
+				expect(slackCalls.length).toBe(2);
+				expect(slackCalls[0].text).toContain('Pact verifications: ✅1');
+				// verify sent messages are for different provider versions
+				expect(slackCalls[0].text).toContain('otherVersion789');
 			} finally {
 				resetTime();
 			}
@@ -669,7 +679,7 @@ Pact publications: 1`;
 	});
 });
 
-async function sendEvent(event?: WebhookPayload) {
+async function sendEvent(event?: PactWebhookPayload) {
 	return await SELF.fetch('https://example.com', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },

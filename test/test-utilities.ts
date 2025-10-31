@@ -1,6 +1,6 @@
 import { expect } from 'vitest';
 import { now } from '../src/time-utils';
-import type { PactEventData, WebhookPayload } from '../src/types';
+import type { PactEventData, PactWebhookPayload } from '../src/types';
 
 /**
  * Assert that a timestamp is within a reasonable time range of the current time
@@ -61,7 +61,7 @@ export function createPactEventData(overrides: Partial<PactEventData> = {}): Pac
 
 let auto_id = 0;
 
-export function createWebhookPayload(): WebhookPayload {
+export function createWebhookPayload(): PactWebhookPayload {
 	auto_id += 1;
 	return {
 		eventType: 'provider_verification_published',

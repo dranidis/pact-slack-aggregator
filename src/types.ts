@@ -1,4 +1,4 @@
-export interface WebhookPayload {
+export interface PactWebhookPayload {
 	eventType: string;
 	providerName: string;
 	consumerName: string;
@@ -28,7 +28,7 @@ export interface PactEventData {
 	providerVersionDescriptions?: string;
 }
 
-export interface StoredPactEvent extends PactEventData {
+export interface StoredPactEventData extends PactEventData {
 	ts: number; // timestamp when event was received
 }
 
@@ -38,7 +38,7 @@ export interface DebugInfo {
 	lastProcessTime: number;
 	eventBuckets: Record<string, {
 		count: number;
-		events: StoredPactEvent[];
+		events: StoredPactEventData[];
 	}>;
 	totalEvents: number;
 	totalProcessedEvents: number;

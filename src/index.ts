@@ -1,6 +1,6 @@
 
 import { now } from "./time-utils";
-import type { WebhookPayload, PactEventData, StoredPactEvent, DebugInfo, SlackPostMessageResponse, SlackPostMessageRequest } from './types';
+import type { PactWebhookPayload, PactEventData, StoredPactEventData, DebugInfo, SlackPostMessageResponse, SlackPostMessageRequest } from './types';
 import { pascalCaseToDash, getVerificationId } from "./utils";
 export { PactAggregator } from './pact-aggregator';
 
@@ -50,7 +50,7 @@ export default {
 				consumerVersionNumber,
 				providerVersionNumber,
 				providerVersionDescriptions,
-			}: WebhookPayload = await request.json();
+			}: PactWebhookPayload = await request.json();
 
 			const pacticipant = getPacticipant(eventType, providerName, consumerName);
 
@@ -133,18 +133,18 @@ function getPacticipantVersionNumber(eventType: string, providerVersionNumber?: 
 }
 
 async function processAllBatches(env: Env) {
-	const processedEvents: StoredPactEvent[] = await getPactAggregatorStub(env).processBatches();
+	const processedEvents: StoredPactEventData[] = await getPactAggregatorStub(env).processBatches();
 
 	if (processedEvents.length > 0) {
 		await postSummaryToSlack(env, processedEvents);
 	}
 }
 
-async function postSummaryToSlack(env: Env, events: StoredPactEvent[]) {
-	const slackChannel = env.SLACK_CHANNEL || "#pact-broker";
+async function postSummaryToSlack(env: Env, events: StoredPactEventData[]) {
+	const slackChannel = env.SLACK_CHANNEL;
 
 	// Group events by pacticipant version number
-	const grouped = events.reduce((acc: Record<string, StoredPactEvent[]>, e: StoredPactEvent) => {
+	const grouped = events.reduce((acc: Record<string, StoredPactEventData[]>, e: StoredPactEventData) => {
 		const key = `${e.pacticipant}:${e.pacticipantVersionNumber}`;
 		acc[key] = acc[key] || [];
 		acc[key].push(e);
@@ -172,7 +172,7 @@ async function postSummaryToSlack(env: Env, events: StoredPactEvent[]) {
 	}
 }
 
-function createSummaryText(env: Env, pacticipant: string, verifications: StoredPactEvent[], publications: StoredPactEvent[]): string {
+function createSummaryText(env: Env, pacticipant: string, verifications: StoredPactEventData[], publications: StoredPactEventData[]): string {
 	const successCount = verifications.filter((e) => e.status === "success").length;
 	const failedCount = verifications.length - successCount;
 
@@ -192,7 +192,7 @@ function createSummaryText(env: Env, pacticipant: string, verifications: StoredP
 	return summary;
 }
 
-function createThreadText(env: Env, publications: StoredPactEvent[], verifications: StoredPactEvent[]): string {
+function createThreadText(env: Env, publications: StoredPactEventData[], verifications: StoredPactEventData[]): string {
 	let threadDetails = "";
 
 	for (const e of publications) {
