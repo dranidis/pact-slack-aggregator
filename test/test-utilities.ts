@@ -13,11 +13,12 @@ let auto_id = 0;
  * @param toleranceMs - The tolerance in milliseconds (defaults to 100ms)
  */
 export function expectTimestampToBeRecent(
-	timestamp: number,
+	timestampString: string,
 	baseTime?: number,
 	toleranceMs = 100
 ): void {
 	const referenceTime = baseTime ?? now();
+	const timestamp = Date.parse(timestampString);
 	expect(timestamp).toBeGreaterThanOrEqual(referenceTime);
 	expect(timestamp).toBeLessThan(referenceTime + toleranceMs);
 }

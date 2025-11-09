@@ -231,8 +231,8 @@ describe('PactAggregator', () => {
 			// Fresh aggregator with no events should have null time values
 			const debugData = await aggregator.getDebugInfo();
 
-			expect(debugData.lastEventTime).toBe(0);
-			expect(debugData.lastProcessTime).toBe(0);
+			expect(Date.parse(debugData.lastEventTime)).toBe(0);
+			expect(Date.parse(debugData.lastProcessTime)).toBe(0);
 			expect(debugData.timeSinceLastEvent).toBeNull();
 			expect(debugData.timeSinceLastProcess).toBeNull();
 		});
@@ -250,7 +250,7 @@ describe('PactAggregator', () => {
 			const debugData = await aggregator.getDebugInfo();
 
 			expect(debugData.timeSinceLastEvent).toBe(60000); // 1 minute difference
-			expect(debugData.lastEventTime).toBe(baseTime);
+			expect(Date.parse(debugData.lastEventTime)).toBe(baseTime);
 		});
 	});
 
@@ -270,8 +270,8 @@ describe('PactAggregator', () => {
 			// Verify all data is cleared
 			debugData = await aggregator.getDebugInfo();
 			expect(debugData.totalEvents).toBe(0);
-			expect(debugData.lastEventTime).toBe(0);
-			expect(debugData.lastProcessTime).toBe(0);
+			expect(Date.parse(debugData.lastEventTime)).toBe(0);
+			expect(Date.parse(debugData.lastProcessTime)).toBe(0);
 			expect(debugData.totalProcessedEvents).toBe(0);
 			expect(Object.keys(debugData.eventBuckets)).toHaveLength(0);
 		});

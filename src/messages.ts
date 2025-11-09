@@ -2,15 +2,15 @@ import type { StoredPactEventData, StoredContractRequiringVerificationEventData,
 import {
 	PROVIDER_VERIFICATION_PUBLISHED,
 	CONTRACT_REQUIRING_VERIFICATION_PUBLISHED,
-	SUCCESS_EMOJI,
-	FAILURE_EMOJI
 } from "./constants";
 import { getVerificationId, extractPactUrlFromVerificationUrl, pascalCaseToDash } from "./utils";
 
 // Minimal environment interface for message creation
 export interface MessageEnv {
 	GITHUB_BASE_URL: string;
-	PACTICIPANT_TO_REPO_MAP: string;
+	PACTICIPANT_TO_REPO_MAP: Record<string, string>;
+	SUCCESS_EMOJI: string;
+	FAILURE_EMOJI: string;
 }
 
 export function createSummaryAndDetailsMessages(
@@ -35,8 +35,8 @@ function createSummaryText(messageEnv: MessageEnv, pacticipant: string, pacticip
 	const failedCount = verificationEvents.length - successCount;
 
 	const publicationSummary = publications.length === 0 ? "" : `Pact publications: ${publications.length} `;
-	const okString = successCount === 0 ? "" : `${SUCCESS_EMOJI}${successCount} `;
-	const failString = failedCount === 0 ? "" : `${FAILURE_EMOJI}${failedCount}`;
+	const okString = successCount === 0 ? "" : `${messageEnv.SUCCESS_EMOJI}${successCount} `;
+	const failString = failedCount === 0 ? "" : `${messageEnv.FAILURE_EMOJI}${failedCount}`;
 	const verificationSummary = verifications.length === 0 ? "" : `Pact verifications: ${okString}${failString}`;
 
 	const branch = verifications.length !== 0
@@ -75,7 +75,7 @@ function createThreadText(messageEnv: MessageEnv, verifications: StoredPactEvent
 		const { branchLink, githubLink } = createGithubLinks(messageEnv, e.consumerName, e.consumerVersionBranch, e.consumerVersionNumber);
 		const pactUrl = extractPactUrlFromVerificationUrl(e.verificationResultUrl);
 		const pactLink = ` | <${pactUrl}|Pact>`;
-		threadDetails.push(`- ${e.githubVerificationStatus === "success" ? SUCCESS_EMOJI : FAILURE_EMOJI} <${e.verificationResultUrl}|Results>${pactLink} *${e.consumerName}* ${branchLink}${githubLink}`);
+		threadDetails.push(`- ${e.githubVerificationStatus === "success" ? messageEnv.SUCCESS_EMOJI : messageEnv.FAILURE_EMOJI} <${e.verificationResultUrl}|Results>${pactLink} *${e.consumerName}* ${branchLink}${githubLink}`);
 	}
 	return threadDetails;
 }
@@ -97,7 +97,7 @@ function createGithubLinks(messageEnv: MessageEnv, participant: string, branch?:
 }
 
 function mapPacticipantToRepo(messageEnv: MessageEnv, pacticipant: string) {
-	const mapped = JSON.parse(messageEnv.PACTICIPANT_TO_REPO_MAP) as Record<string, string>;
+	const mapped = messageEnv.PACTICIPANT_TO_REPO_MAP;
 	if (mapped[pacticipant]) {
 		return mapped[pacticipant];
 	}

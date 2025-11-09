@@ -51,9 +51,9 @@ export interface StoredContractRequiringVerificationEventData extends ContractRe
 export type StoredPactEventData = StoredProviderVerificationEventData | StoredContractRequiringVerificationEventData;
 
 export interface DebugInfo {
-	currentTime: number;
-	lastEventTime: number;
-	lastProcessTime: number;
+	currentTime: string;
+	lastEventTime: string;
+	lastProcessTime: string;
 	eventBuckets: Record<string, {
 		count: number;
 		events: StoredPactEventData[];
@@ -63,6 +63,9 @@ export interface DebugInfo {
 	lastProcessedCount: number;
 	timeSinceLastEvent: number | null;
 	timeSinceLastProcess: number | null;
+	slackChannel: string;
+	githubBaseUrl: string;
+	pacticipantToRepoMap: Record<string, string>;
 }
 
 export interface SlackPostMessageRequest {

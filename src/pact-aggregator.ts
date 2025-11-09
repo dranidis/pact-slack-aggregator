@@ -100,10 +100,12 @@ export class PactAggregator extends DurableObject<Env> {
 		const events = await this.getEvents();
 		const { totalProcessed, lastProcessedCount } = await this.getProcessingStats();
 
+		console.log(`ENV VARIABLES: GITHUB_BASE_URL=${this.env.GITHUB_BASE_URL} PACTICIPANT_TO_REPO_MAP=${JSON.stringify(this.env.PACTICIPANT_TO_REPO_MAP)}`);
+
 		return {
-			currentTime,
-			lastEventTime,
-			lastProcessTime,
+			currentTime: new Date(currentTime).toISOString(),
+			lastEventTime: new Date(lastEventTime).toISOString(),
+			lastProcessTime: new Date(lastProcessTime).toISOString(),
 			eventBuckets: Object.fromEntries(
 				Array.from(events.entries()).map(([key, eventList]: [string, StoredPactEventData[]]) => [
 					key,
@@ -114,7 +116,10 @@ export class PactAggregator extends DurableObject<Env> {
 			totalProcessedEvents: totalProcessed,
 			lastProcessedCount,
 			timeSinceLastEvent: lastEventTime > 0 ? now() - lastEventTime : null,
-			timeSinceLastProcess: lastProcessTime > 0 ? now() - lastProcessTime : null
+			timeSinceLastProcess: lastProcessTime > 0 ? now() - lastProcessTime : null,
+			slackChannel: this.env.SLACK_CHANNEL,
+			githubBaseUrl: this.env.GITHUB_BASE_URL,
+			pacticipantToRepoMap: this.env.PACTICIPANT_TO_REPO_MAP,
 		};
 	}
 

@@ -4,19 +4,19 @@ import type { StoredProviderVerificationEventData, StoredContractRequiringVerifi
 import {
 	PROVIDER_VERIFICATION_PUBLISHED,
 	CONTRACT_REQUIRING_VERIFICATION_PUBLISHED,
-	SUCCESS_EMOJI,
-	FAILURE_EMOJI
 } from '../src/constants';
 
 // Mock environment for testing
 const mockEnv: MessageEnv = {
 	GITHUB_BASE_URL: 'https://github.com/test-org',
-	PACTICIPANT_TO_REPO_MAP: JSON.stringify({
+	PACTICIPANT_TO_REPO_MAP: {
 		'TestProvider': 'test-provider-repo',
 		'TestConsumer': 'test-consumer-repo',
 		'UserService': 'user-service',
 		'PaymentService': 'payment-service'
-	})
+	},
+	SUCCESS_EMOJI: "✅",
+	FAILURE_EMOJI: "😢"
 };
 
 describe('createSummaryAndDetailsMessages', () => {
@@ -50,14 +50,14 @@ describe('createSummaryAndDetailsMessages', () => {
 			expect(result.summaryText).toContain('TestProvider');
 			expect(result.summaryText).toContain('develop');
 			expect(result.summaryText).toContain('def456');
-			expect(result.summaryText).toContain(`Pact verifications: ${SUCCESS_EMOJI}1`);
+			expect(result.summaryText).toContain(`Pact verifications: ${mockEnv.SUCCESS_EMOJI}1`);
 			expect(result.summaryText).toContain('https://github.com/test-org/test-provider-repo/tree/develop');
 			expect(result.summaryText).toContain('https://github.com/test-org/test-provider-repo/commit/def456');
 
 			// Check details
 			expect(result.detailsList).toHaveLength(2); // "Verified consumers:" + 1 verification
 			expect(result.detailsList[0]).toBe('Verified consumers:');
-			expect(result.detailsList[1]).toContain(SUCCESS_EMOJI);
+			expect(result.detailsList[1]).toContain(mockEnv.SUCCESS_EMOJI);
 			expect(result.detailsList[1]).toContain('TestConsumer');
 			expect(result.detailsList[1]).toContain('verification-results/1');
 			expect(result.detailsList[1]).toContain('https://github.com/test-org/test-consumer-repo/tree/main');
@@ -88,8 +88,8 @@ describe('createSummaryAndDetailsMessages', () => {
 				verifications
 			);
 
-			expect(result.summaryText).toContain(`Pact verifications: ${FAILURE_EMOJI}1`);
-			expect(result.detailsList[1]).toContain(FAILURE_EMOJI);
+			expect(result.summaryText).toContain(`Pact verifications: ${mockEnv.FAILURE_EMOJI}1`);
+			expect(result.detailsList[1]).toContain(mockEnv.FAILURE_EMOJI);
 		});
 
 		it('should handle mixed success and failure verifications', () => {
@@ -131,10 +131,10 @@ describe('createSummaryAndDetailsMessages', () => {
 				verifications
 			);
 
-			expect(result.summaryText).toContain(`Pact verifications: ${SUCCESS_EMOJI}1 ${FAILURE_EMOJI}1`);
+			expect(result.summaryText).toContain(`Pact verifications: ${mockEnv.SUCCESS_EMOJI}1 ${mockEnv.FAILURE_EMOJI}1`);
 			expect(result.detailsList).toHaveLength(3); // "Verified consumers:" + 2 verifications
-			expect(result.detailsList[1]).toContain(SUCCESS_EMOJI);
-			expect(result.detailsList[2]).toContain(FAILURE_EMOJI);
+			expect(result.detailsList[1]).toContain(mockEnv.SUCCESS_EMOJI);
+			expect(result.detailsList[2]).toContain(mockEnv.FAILURE_EMOJI);
 		});
 	});
 
@@ -251,7 +251,7 @@ describe('createSummaryAndDetailsMessages', () => {
 
 			// Should contain both publication and verification summaries
 			expect(result.summaryText).toContain('Pact publications: 1');
-			expect(result.summaryText).toContain(`Pact verifications: ${SUCCESS_EMOJI}1`);
+			expect(result.summaryText).toContain(`Pact verifications: ${mockEnv.SUCCESS_EMOJI}1`);
 
 			// Details should contain both publication and verification details
 			expect(result.detailsList.length).toBeGreaterThan(2);

@@ -10,7 +10,7 @@ export default defineWorkersConfig({
 		isolate: true,
 		poolOptions: {
 			workers: {
-				wrangler: { configPath: './wrangler.jsonc' },
+				wrangler: { configPath: './wrangler.dev.jsonc' },
 				// Force isolated storage for each test
 				isolatedStorage: true,
 			},
@@ -26,7 +26,7 @@ export default defineWorkersConfig({
 			provider: 'istanbul',
 			reporter: ['text', 'html', 'lcov'],
 			reportsDirectory: './coverage',
-			exclude: ['dist', 'tests', 'node_modules'],
+			exclude: ['dist', 'tests', 'node_modules', '.wrangler/**'],
 		},
 	},
 });

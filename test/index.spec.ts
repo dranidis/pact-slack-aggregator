@@ -3,10 +3,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import worker from '../src/index';
 import { makeProviderVerificationPayload, makeContractPublicationPayload, expectTimestampToBeRecent } from './test-utilities';
 import { ContractRequiringVerificationPublishedPayload, DebugInfo, ProviderVerificationPublishedPayload } from '../src/types';
-import {
-	SUCCESS_EMOJI,
-	FAILURE_EMOJI
-} from '../src/constants';
 import { mockTime, resetTime } from '../src/time-utils';
 
 interface SlackCallMock {
@@ -213,14 +209,14 @@ describe('Pact Slack Aggregator Worker', () => {
 				// Verify messages contain our test data
 				const userServiceSummary =
 					`*UserService* <${env.GITHUB_BASE_URL}/user-service/tree/main|main> <${env.GITHUB_BASE_URL}/user-service/commit/5d54920bee2bea8501d604185212aafds8081950|5d54920>
-Pact verifications: ${SUCCESS_EMOJI}1`;
+Pact verifications: ${env.SUCCESS_EMOJI}1`;
 				const userServiceThread =
-					`${SUCCESS_EMOJI} <https://pact.example.com/verification-results/1|Results> | <https://pact.example.com|Pact> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
+					`${env.SUCCESS_EMOJI} <https://pact.example.com/verification-results/1|Results> | <https://pact.example.com|Pact> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
 				const paymentServiceSummary =
 					`*PaymentService* <${env.GITHUB_BASE_URL}/payment-service/tree/main|main> <${env.GITHUB_BASE_URL}/payment-service/commit/50bee2bea8501d604185212aa7808195080d5492|50bee2b>
-Pact verifications: ${FAILURE_EMOJI}1`;
+Pact verifications: ${env.FAILURE_EMOJI}1`;
 				const paymentServiceThread =
-					`${FAILURE_EMOJI} <https://pact.example.com/verification-results/2|Results> | <https://pact.example.com|Pact> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
+					`${env.FAILURE_EMOJI} <https://pact.example.com/verification-results/2|Results> | <https://pact.example.com|Pact> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
 				const adminPanelSummary =
 					`*AdminPanel* <${env.GITHUB_BASE_URL}/admin-panel/tree/feature/new-notifications|feature/new-notifications> <${env.GITHUB_BASE_URL}/admin-panel/commit/5d549e2bea185212aa78081950838501d60420be|5d549e2>
 Pact publications: 1`;
@@ -644,8 +640,8 @@ Pact publications: 1`;
 
 			// All data should be reset to initial state
 			expect(debugDataAfter.totalEvents).toBe(0);
-			expect(debugDataAfter.lastEventTime).toBe(0);
-			expect(debugDataAfter.lastProcessTime).toBe(0);
+			expect(Date.parse(debugDataAfter.lastEventTime)).toBe(0);
+			expect(Date.parse(debugDataAfter.lastProcessTime)).toBe(0);
 			expect(debugDataAfter.totalProcessedEvents).toBe(0);
 			expect(debugDataAfter.lastProcessedCount).toBe(0);
 			expect(Object.keys(debugDataAfter.eventBuckets)).toHaveLength(0);
@@ -662,8 +658,8 @@ Pact publications: 1`;
 			const debugData: DebugInfo = await debugResponse.json();
 
 			expect(debugData.totalEvents).toBe(0);
-			expect(debugData.lastEventTime).toBe(0);
-			expect(debugData.lastProcessTime).toBe(0);
+			expect(Date.parse(debugData.lastEventTime)).toBe(0);
+			expect(Date.parse(debugData.lastProcessTime)).toBe(0);
 		});
 
 		it('should require debug key for clearAll', async () => {

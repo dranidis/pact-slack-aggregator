@@ -1,0 +1,37 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "pact-slack-aggregator",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-09-06",
+	"observability": {
+		"enabled": true
+	},
+	"vars": {
+		"SLACK_CHANNEL": "#your-channel",
+		"GITHUB_BASE_URL": "https://github.com/your-org",
+		"PACTICIPANT_TO_REPO_MAP": { "ServiceA": "repo-a", "ServiceB": "repo-b" },
+		"QUIET_PERIOD_MS": 10000,
+		"MINUTE_BUCKET_MS": 60000,
+		"MAX_TIME_BEFORE_FLUSHING": 300000,
+		"PACT_AGGREGATOR_NAME": "pact-events",
+		"SUCCESS_EMOJI": "✅",
+		"FAILURE_EMOJI": "😢"
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "PACT_AGGREGATOR",
+				"class_name": "PactAggregator"
+			}
+		]
+	},
+	"triggers": {
+		"crons": ["*/2 * * * *"]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["PactAggregator"]
+		}
+	]
+}

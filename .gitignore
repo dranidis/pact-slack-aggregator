@@ -164,5 +164,9 @@ dist
 !.dev.vars.example
 .env*
 !.env.example
+
+# Local wrangler configuration with environment-specific values
+wrangler.dev.jsonc
+wrangler.prod.jsonc
 .wrangler/
 
