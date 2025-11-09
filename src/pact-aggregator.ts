@@ -47,7 +47,7 @@ export class PactAggregator extends DurableObject<Env> {
 	 * Process the event buckets
 	 * @returns An array of events to be sent
 	 */
-	async processBatches(): Promise<StoredPactEventData[]> {
+	async getEventsToPublish(): Promise<StoredPactEventData[]> {
 		try {
 			const currentTime = now();
 			const currentMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS);
@@ -132,7 +132,8 @@ export class PactAggregator extends DurableObject<Env> {
 		const currentMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS)
 		const currentBucketKey = this.createBucketKey(currentMinute);
 
-		// Get all pacticipantVersionNumbers from the current bucket
+		// Get version numbers from current bucket plus recent versions from previous bucket
+		// to identify events that should be consolidated together
 		const recentVersionNumbers = this.getRecentVersionNumbers(allEvents, currentMinute, currentTime);
 
 		// For each bucket (except current), find events with matching pacticipantVersionNumber

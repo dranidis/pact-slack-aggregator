@@ -1,36 +1,54 @@
-export interface PactWebhookPayload {
-	eventType: string;
+import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from "./constants";
+// ...existing code...
+
+export interface BasePactWebhookPayload {
+	eventType: typeof PROVIDER_VERIFICATION_PUBLISHED | typeof CONTRACT_REQUIRING_VERIFICATION_PUBLISHED;
 	providerName: string;
 	consumerName: string;
-	verificationResultUrl?: string;
-	pactUrl?: string;
-	githubVerificationStatus?: string;
-	consumerVersionBranch?: string;
-	providerVersionBranch?: string;
-	consumerVersionNumber?: string;
-	providerVersionNumber?: string;
+	consumerVersionBranch: string;
+	providerVersionBranch: string;
+	consumerVersionNumber: string;
+	providerVersionNumber: string;
+}
+
+export interface ProviderVerificationPublishedPayload extends BasePactWebhookPayload {
+	eventType: typeof PROVIDER_VERIFICATION_PUBLISHED;
+	githubVerificationStatus: string;
+	verificationResultUrl: string;
+}
+
+export interface ContractRequiringVerificationPublishedPayload extends BasePactWebhookPayload {
+	eventType: typeof CONTRACT_REQUIRING_VERIFICATION_PUBLISHED;
+	pactUrl: string;
 	providerVersionDescriptions?: string;
 }
 
-export interface PactEventData {
+// Simple utility class with static methods - cleanest approach
+// PayloadUtils moved to payload.ts
+
+export type PactWebhookPayload = ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload;
+
+export interface ProviderVerificationEventData extends ProviderVerificationPublishedPayload {
 	pacticipant: string;
 	pacticipantVersionNumber: string;
-	eventType: string;
-	provider: string;
-	consumer: string;
-	status?: string;
-	resultUrl?: string;
-	pactUrl?: string;
-	consumerVersionBranch?: string;
-	providerVersionBranch?: string;
-	consumerVersionNumber?: string;
-	providerVersionNumber?: string;
-	providerVersionDescriptions?: string;
 }
 
-export interface StoredPactEventData extends PactEventData {
+export interface ContractRequiringVerificationEventData extends ContractRequiringVerificationPublishedPayload {
+	pacticipant: string;
+	pacticipantVersionNumber: string;
+}
+
+export type PactEventData = ProviderVerificationEventData | ContractRequiringVerificationEventData;
+
+export interface StoredProviderVerificationEventData extends ProviderVerificationEventData {
 	ts: number; // timestamp when event was received
 }
+
+export interface StoredContractRequiringVerificationEventData extends ContractRequiringVerificationEventData {
+	ts: number; // timestamp when event was received
+}
+
+export type StoredPactEventData = StoredProviderVerificationEventData | StoredContractRequiringVerificationEventData;
 
 export interface DebugInfo {
 	currentTime: number;

@@ -3,6 +3,7 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
 export default defineWorkersConfig({
 	test: {
 		globals: true,
+		setupFiles: ['./test/setup.ts'],
 		include: ['test/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
 		exclude: ['node_modules/**', 'dist/**', '.wrangler/**'],
 		// Ensure test isolation

@@ -1,6 +1,10 @@
 import { expect } from 'vitest';
 import { now } from '../src/time-utils';
-import type { PactEventData, PactWebhookPayload } from '../src/types';
+import type { PactEventData, ProviderVerificationPublishedPayload, ContractRequiringVerificationPublishedPayload } from '../src/types';
+import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from '../src/constants';
+import { getEventDataFromPayload } from '../src/payload-utils';
+
+let auto_id = 0;
 
 /**
  * Assert that a timestamp is within a reasonable time range of the current time
@@ -19,61 +23,68 @@ export function expectTimestampToBeRecent(
 }
 
 /**
- * Assert that a timestamp is within a specific time range
- * @param timestamp - The timestamp to check
- * @param minTime - The minimum expected time
- * @param maxTime - The maximum expected time
- */
-export function expectTimestampInRange(
-	timestamp: number,
-	minTime: number,
-	maxTime: number
-): void {
-	expect(timestamp).toBeGreaterThan(minTime);
-	expect(timestamp).toBeLessThan(maxTime);
-}
-
-/**
  * Create a unique test ID for Durable Object testing to avoid state persistence
  * @param prefix - Optional prefix for the ID
  */
 export function createUniqueTestId(prefix = 'test') {
 	return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
+/**
+ * Factory for ProviderVerificationEventData with overrides
+ */
+
+export function makeProviderVerificationEventData(overrides: Partial<ProviderVerificationPublishedPayload> = {}): PactEventData {
+	return getEventDataFromPayload({ ...createProviderVerificationPayload(), ...overrides } as ProviderVerificationPublishedPayload);
+}
 
 /**
- * Helper to create test event data
- * @param overrides - Properties to override in the default event
+ * Factory for ContractPublicationEventData with overrides
  */
-export function createPactEventData(overrides: Partial<PactEventData> = {}): PactEventData {
-	return {
-		pacticipant: 'TestProvider',
-		pacticipantVersionNumber: '1.0.0',
-		eventType: 'provider_verification_published',
-		provider: 'TestProvider',
-		consumer: 'TestConsumer',
-		status: 'success',
-		resultUrl: 'https://example.com/results',
-		pactUrl: 'https://example.com/pact',
-		...overrides
-	};
+export function makeContractPublicationEventData(overrides: Partial<ContractRequiringVerificationPublishedPayload> = {}): PactEventData {
+	return getEventDataFromPayload({ ...createContractPublicationPayload(), ...overrides } as ContractRequiringVerificationPublishedPayload);
 }
 
-let auto_id = 0;
+/**
+ * Factory for raw ProviderVerificationPublishedPayload with overrides (for webhook testing)
+ */
+export function makeProviderVerificationPayload(overrides: Partial<ProviderVerificationPublishedPayload> = {}): ProviderVerificationPublishedPayload {
+	return { ...createProviderVerificationPayload(), ...overrides };
+}
 
-export function createWebhookPayload(): PactWebhookPayload {
-	auto_id += 1;
+/**
+ * Factory for raw ContractRequiringVerificationPublishedPayload with overrides (for webhook testing)
+ */
+export function makeContractPublicationPayload(overrides: Partial<ContractRequiringVerificationPublishedPayload> = {}): ContractRequiringVerificationPublishedPayload {
+	return { ...createContractPublicationPayload(), ...overrides };
+}
+
+function createContractPublicationPayload(): ContractRequiringVerificationPublishedPayload {
 	return {
-		eventType: 'provider_verification_published',
+		eventType: CONTRACT_REQUIRING_VERIFICATION_PUBLISHED,
 		providerName: 'TestProvider',
 		consumerName: 'TestConsumer',
-		verificationResultUrl: `https://example.com/verification/results/${auto_id}`,
 		pactUrl: 'https://example.com/pact',
-		githubVerificationStatus: 'success',
 		consumerVersionBranch: 'main',
-		providerVersionBranch: 'main',
+		providerVersionBranch: 'develop',
 		consumerVersionNumber: '1.0.0',
-		providerVersionNumber: '1.0.0',
-		providerVersionDescriptions: 'Initial release'
+		providerVersionNumber: '2.0.0',
+		providerVersionDescriptions: 'Test version',
 	};
 }
+
+function createProviderVerificationPayload(): ProviderVerificationPublishedPayload {
+	auto_id += 1;
+	return {
+		eventType: PROVIDER_VERIFICATION_PUBLISHED,
+		providerName: 'TestProvider',
+		consumerName: 'TestConsumer',
+		githubVerificationStatus: 'success',
+		verificationResultUrl: `https://example.com/verification-results/${auto_id}`,
+		consumerVersionBranch: 'main',
+		providerVersionBranch: 'develop',
+		consumerVersionNumber: '1.0.0',
+		providerVersionNumber: '2.0.0',
+	};
+}
+
+
