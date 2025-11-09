@@ -39,6 +39,12 @@ export default {
 			return new Response("Method Not Allowed", { status: 405 });
 		}
 
+		// Check DEBUG_KEY for POST requests
+		const debugKey = url.searchParams.get("key");
+		if (debugKey !== env.DEBUG_KEY) {
+			return new Response("Unauthorized", { status: 401 });
+		}
+
 		// A POST request - process webhook from Pact
 		try {
 			const rawPayload: PactWebhookPayload = await request.json();

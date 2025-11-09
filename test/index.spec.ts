@@ -61,13 +61,33 @@ describe('Pact Slack Aggregator Worker', () => {
 		});
 
 		it('should handle malformed JSON', async () => {
-			const response = await SELF.fetch('https://example.com', {
+			const response = await SELF.fetch(`https://example.com?key=${env.DEBUG_KEY}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: 'invalid json'
 			});
 
 			expect(response.status).toBe(500);
+		});
+
+		it('should reject unauthorized requests wrong key', async () => {
+			const response = await SELF.fetch(`https://example.com?key=wrong`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: 'invalid json'
+			});
+
+			expect(response.status).toBe(401);
+		});
+
+		it('should reject unauthorized requests no key', async () => {
+			const response = await SELF.fetch(`https://example.com`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: 'invalid json'
+			});
+
+			expect(response.status).toBe(401);
 		});
 	});
 
@@ -675,7 +695,7 @@ async function debug() {
 }
 
 async function sendEvent(event?: ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload) {
-	return await SELF.fetch('https://example.com', {
+	return await SELF.fetch(`https://example.com?key=${env.DEBUG_KEY}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(event ?? makeProviderVerificationPayload())

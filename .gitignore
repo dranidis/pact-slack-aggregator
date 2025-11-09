@@ -170,3 +170,4 @@ wrangler.dev.jsonc
 wrangler.prod.jsonc
 .wrangler/
 
+secret/

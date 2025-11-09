@@ -104,16 +104,21 @@ wrangler deploy
 
 **Note:** Manual deployment requires that `wrangler.jsonc` exists in the project root. For production deployments, always use `npm run deploy` to ensure the correct configuration is used.
 
-## Set slack token
+## Set secrets
 
-The only action needed to change the slack workspace to which the messages are being sent is:
-
-```sh
-wrangler secret put SLACK_TOKEN
-```
-
+The slack workspace to which the messages are being sent.
 This is the Bot User OAuth Token found at OAuth & Permissions at https://api.slack.com/apps
 e.g. `xoxb-......................`
+
+```sh
+wrangler secret put SLACK_TOKEN --name pact-slack-aggregator
+```
+
+and to set the key for authorization:
+
+```
+wrangler secret put DEBUG_KEY --name pact-slack-aggregator
+```
 
 ## Watch logs
 
@@ -127,17 +132,12 @@ wrangler tail pact-slack-aggregator
 curl https://psa.workers.dev/debug\?key\=DEBUG_KEY
 ```
 
-## List existing webhooks
-
-```sh
-curl -X GET https://pactbrokerurl.com/webhooks
-```
-
 ## Install/update webhooks
 
-In folder `pact-broker-webhooks`
+### List existing webhooks
 
-- optionally edit the json files for any changes (e.g. disable)
-- change the `PUT` to `POST` in `update_new_webhooks.sh` for creation.
-- execute the `create_new_webhooks` for creation
-- execute the `update_new_webhooks.sh` for updating existing webhooks (change the UUID of the webhook at the end of the link)
+```sh
+curl -X GET $PACT_URL/webhooks
+```
+
+In folder `pact-broker-webhooks` read the `README` file for instructions.

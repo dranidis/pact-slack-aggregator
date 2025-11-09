@@ -3,7 +3,7 @@
 	"enabled": true,
 	"request": {
 		"method": "POST",
-		"url": "https://pact-slack-aggregator.username.workers.dev/",
+		"url": "https://pact-slack-aggregator.USERNAME.workers.dev?key=KEY",
 		"headers": {
 			"content-type": "application/json"
 		},

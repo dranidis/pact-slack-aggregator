@@ -10,4 +10,4 @@ Before running the scripts set the following.
 
 ## json payloads for webhook creation/update
 
-Update the "url" property to point to your worker at Cloudflare
+Update the "url" property to point to your worker at Cloudflare and set the right KEY.
