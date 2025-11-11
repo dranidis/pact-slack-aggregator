@@ -10,6 +10,7 @@
 		"SLACK_CHANNEL": "#your-channel",
 		"GITHUB_BASE_URL": "https://github.com/your-org",
 		"PACTICIPANT_TO_REPO_MAP": { "ServiceA": "repo-a", "ServiceB": "repo-b" },
+		"TIMEZONE": "UTC",
 		"QUIET_PERIOD_MS": 10000,
 		"MINUTE_BUCKET_MS": 60000,
 		"MAX_TIME_BEFORE_FLUSHING": 300000,

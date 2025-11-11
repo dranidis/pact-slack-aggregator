@@ -31,6 +31,7 @@ export default {
 
 		// Manual trigger endpoint
 		if (url.pathname === "/trigger" && url.searchParams.get("key") === env.DEBUG_KEY) {
+			console.log(`Should process? ${shouldProcessAtCurrentTime(env)}`);
 			await processEventsForPublication(env);
 			return new Response("Processing completed", { status: 200 });
 		}
@@ -61,17 +62,23 @@ export default {
 
 	// Runs automatically (Cloudflare Cron). Schedule defined in wrangler.jsonc
 	scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		if (shouldProcessAtCurrentTime(now())) {
+		if (shouldProcessAtCurrentTime(env)) {
 			ctx.waitUntil(processEventsForPublication(env));
 		}
 	},
 };
 
-function shouldProcessAtCurrentTime(currentTime: number): boolean {
+function shouldProcessAtCurrentTime(env: Env): boolean {
+	const currentTime = now();
+	// Convert UTC time to target timezone (configurable via environment variable)
+	const timezone = env.TIMEZONE ?? 'UTC';
 	const date = new Date(currentTime);
-	const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-	const hour = date.getHours(); // 0-23
-	const minute = date.getMinutes(); // 0-59
+
+	// Get timezone-adjusted time
+	const localTime = new Date(date.toLocaleString("en-US", { timeZone: timezone }));
+	const dayOfWeek = localTime.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+	const hour = localTime.getHours(); // 0-23
+	const minute = localTime.getMinutes(); // 0-59
 
 	const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday to Friday
 	const isWorkingHours = hour >= 8 && hour < 21; // 8 AM to 9 PM
