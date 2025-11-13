@@ -58,7 +58,10 @@ function createThreadText(messageEnv: MessageEnv, verifications: StoredPactEvent
 		const providerVersionNumber = e.providerVersionDescriptions ? e.providerVersionNumber : undefined;
 		const providerVersionBranch = e.providerVersionDescriptions ? e.providerVersionBranch : undefined;
 		const { branchLink, githubLink } = createGithubLinks(messageEnv, e.providerName, providerVersionBranch, providerVersionNumber);
-		threadDetails.push(`Published <${e.pactUrl}|contract> to be verified from provider *${e.providerName}* ${branchLink}${githubLink}${description}`);
+		const pactBrokerURL = // get the base URL from e.pactUrl
+			e.pactUrl.split('/pacts/')[0];
+		const diffUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}/diff/previous-distinct`;
+		threadDetails.push(`Published <${e.pactUrl}|contract> to be verified from provider *${e.providerName}* ${branchLink}${githubLink}${description}. <${diffUrl}|Diff> with previous distinct version of this pact.`);
 	}
 
 	const verificationEvents = verifications.filter((e) => e.eventType === PROVIDER_VERIFICATION_PUBLISHED);

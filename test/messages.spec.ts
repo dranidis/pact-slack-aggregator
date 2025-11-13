@@ -177,6 +177,7 @@ describe('createSummaryAndDetailsMessages', () => {
 			expect(result.detailsList[0]).toContain('testconsumer-testprovider');
 			expect(result.detailsList[0]).toContain('TestProvider');
 			expect(result.detailsList[0]).toContain('Latest from main branch');
+			expect(result.detailsList[0]).toContain(`https://pact.example.com/pacts/provider/TestProvider/consumer/TestConsumer/version/abc123/diff/previous-distinct`);
 		});
 
 		it('should handle publications without provider version descriptions', () => {
