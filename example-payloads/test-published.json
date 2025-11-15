@@ -3,9 +3,9 @@
 	"providerName": "API",
 	"pactUrl": "https://pactbroker/consumer/Engine/pact-version/680f588ac549df922f920c2557c00bfc8c0aff75/metadata/Y3ZuPTcyYTgwZTM4OTUzMGNkZjkyYmM3NzE5MzY4YWE1ZmVjMDBmMjMzYzQmdz10cnVl",
 	"consumerName": "Engine",
-	"consumerVersionBranch": "feature/F123",
-	"providerVersionBranch": "release/F123",
-	"consumerVersionNumber": "72a80e389530cdf92bc7719368aa5fec00f233c4",
+	"consumerVersionBranch": "feature/consumer/F123",
+	"providerVersionBranch": "feature/provider/F123",
+	"consumerVersionNumber": "12a80e389530cdf92bc7719368aa5fec00f233c3",
 	"providerVersionNumber": "68f58c450b1076ed8a56c40ec84e1ded0fdd3b80",
-	"providerVersionDescriptions": ""
+	"providerVersionDescriptions": "released in production"
 }

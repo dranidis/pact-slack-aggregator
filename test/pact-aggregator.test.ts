@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { mockTime, now } from '../src/time-utils';
-import { expectTimestampToBeRecent, createUniqueTestId, makeProviderVerificationEventData, makeContractPublicationEventData } from './test-utilities';
+import { expectTimestampToBeRecent, createUniqueTestId, makeProviderVerificationEventData, makeContractPublicationEventData, makeContractPublicationPayload } from './test-utilities';
 import { PactAggregator } from '../src';
 
 describe('PactAggregator', () => {
@@ -346,6 +346,25 @@ describe('PactAggregator', () => {
 
 			const buckets = Object.values(debugData.eventBuckets);
 			expect(buckets).toHaveLength(1); // All events consolidated to one bucket
+		});
+	});
+
+	describe('PactAggregator publication thread mapping', () => {
+		it('should store and return publication thread info in debug', async () => {
+			const pub = makeContractPublicationPayload({
+				providerName: 'API',
+				consumerName: 'Engine',
+				consumerVersionNumber: 'ver123',
+				consumerVersionBranch: 'branchA',
+			});
+
+			// Add a publication event
+			await aggregator.setPublicationThreadTs(pub, '#ci-API', 'thread123');
+
+			// Get debug info
+			const debugInfo = await aggregator.getDebugInfo();
+			expect(debugInfo.publicationThreads).toBeDefined();
+			expect(debugInfo.publicationThreads['API|Engine|branchA|ver123|#ci-API']).toBe('thread123');
 		});
 	});
 });

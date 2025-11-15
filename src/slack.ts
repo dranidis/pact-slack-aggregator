@@ -16,7 +16,7 @@ export async function postPacticipantEventsToSlack(
 	await slackPost(slackEnv, threadText, summaryResp.ts);
 }
 
-async function slackPost(slackEnv: SlackEnv, text: string, threadTs?: string): Promise<SlackPostMessageResponse> {
+export async function slackPost(slackEnv: SlackEnv, text: string, threadTs?: string): Promise<SlackPostMessageResponse> {
 	const body: SlackPostMessageRequest = {
 		text,
 		channel: slackEnv.SLACK_CHANNEL,

@@ -1,4 +1,4 @@
-import type { StoredPactEventData, StoredContractRequiringVerificationEventData, StoredProviderVerificationEventData } from './types';
+import type { StoredPactEventData, StoredContractRequiringVerificationEventData, StoredProviderVerificationEventData, ProviderVerificationPublishedPayload, ContractRequiringVerificationPublishedPayload } from './types';
 import {
 	PROVIDER_VERIFICATION_PUBLISHED,
 	CONTRACT_REQUIRING_VERIFICATION_PUBLISHED,
@@ -52,16 +52,7 @@ function createThreadText(messageEnv: MessageEnv, verifications: StoredPactEvent
 
 	const contractPublications = publications.filter((e) => e.eventType === CONTRACT_REQUIRING_VERIFICATION_PUBLISHED);
 	for (const e of contractPublications) {
-		const description = e.providerVersionDescriptions ? ` - ${e.providerVersionDescriptions}` : "";
-		// provider version info only relevant if descriptions exist since these are
-		// separate events for each version
-		const providerVersionNumber = e.providerVersionDescriptions ? e.providerVersionNumber : undefined;
-		const providerVersionBranch = e.providerVersionDescriptions ? e.providerVersionBranch : undefined;
-		const { branchLink, githubLink } = createGithubLinks(messageEnv, e.providerName, providerVersionBranch, providerVersionNumber);
-		const pactBrokerURL = // get the base URL from e.pactUrl
-			e.pactUrl.split('/pacts/')[0];
-		const diffUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}/diff/previous-distinct`;
-		threadDetails.push(`Published <${e.pactUrl}|contract> to be verified from provider *${e.providerName}* ${branchLink}${githubLink}${description}. <${diffUrl}|Diff> with previous distinct version of this pact.`);
+		threadDetails.push(createPublicationSummaryText(e as ContractRequiringVerificationPublishedPayload, messageEnv));
 	}
 
 	const verificationEvents = verifications.filter((e) => e.eventType === PROVIDER_VERIFICATION_PUBLISHED);
@@ -75,12 +66,47 @@ function createThreadText(messageEnv: MessageEnv, verifications: StoredPactEvent
 	}
 
 	for (const e of verificationEvents) {
-		const { branchLink, githubLink } = createGithubLinks(messageEnv, e.consumerName, e.consumerVersionBranch, e.consumerVersionNumber);
-		const pactUrl = extractPactUrlFromVerificationUrl(e.verificationResultUrl);
-		const pactLink = ` | <${pactUrl}|Pact>`;
-		threadDetails.push(`- ${e.githubVerificationStatus === "success" ? messageEnv.SUCCESS_EMOJI : messageEnv.FAILURE_EMOJI} <${e.verificationResultUrl}|Results>${pactLink} *${e.consumerName}* ${branchLink}${githubLink}`);
+		threadDetails.push(createVerificationThreadDetails(e, messageEnv));
 	}
 	return threadDetails;
+}
+
+function createVerificationThreadDetails(e: ProviderVerificationPublishedPayload, messageEnv: MessageEnv) {
+	const { branchLink, githubLink } = createGithubLinks(messageEnv, e.consumerName, e.consumerVersionBranch, e.consumerVersionNumber);
+	const pactUrl = extractPactUrlFromVerificationUrl(e.verificationResultUrl);
+	const pactLink = ` | <${pactUrl}|Pact>`;
+	return `- ${e.githubVerificationStatus === "success" ? messageEnv.SUCCESS_EMOJI : messageEnv.FAILURE_EMOJI} <${e.verificationResultUrl}|Results>${pactLink} *${e.consumerName}* ${branchLink}${githubLink}`;
+}
+
+function createPublicationSummaryText(e: ContractRequiringVerificationPublishedPayload, messageEnv: MessageEnv) {
+	const description = e.providerVersionDescriptions ? ` - ${e.providerVersionDescriptions}` : "";
+	// provider version info only relevant if descriptions exist since these are
+	// separate events for each version
+	const providerVersionNumber = e.providerVersionDescriptions ? e.providerVersionNumber : undefined;
+	const providerVersionBranch = e.providerVersionDescriptions ? e.providerVersionBranch : undefined;
+	const { branchLink, githubLink } = createGithubLinks(messageEnv, e.providerName, providerVersionBranch, providerVersionNumber);
+	const pactBrokerURL = // get the base URL from e.pactUrl
+		e.pactUrl.split('/pacts/')[0];
+	const diffUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}/diff/previous-distinct`;
+	return `Published <${e.pactUrl}|contract> to be verified from provider *${e.providerName}* ${branchLink}${githubLink}${description}. <${diffUrl}|Diff> with previous distinct version of this pact.`;
+}
+
+export function createVerificationThreadDetailsForProviderChannel(e: ProviderVerificationPublishedPayload, messageEnv: MessageEnv) {
+	const { branchLink, githubLink } = createGithubLinks(messageEnv, e.providerName, e.providerVersionBranch, e.providerVersionNumber);
+	return `- ${e.githubVerificationStatus === "success" ? messageEnv.SUCCESS_EMOJI : messageEnv.FAILURE_EMOJI} <${e.verificationResultUrl}|Results> *${e.providerName}* ${branchLink}${githubLink}`;
+}
+
+
+export function createPublicationSummaryTextForProviderChannel(e: ContractRequiringVerificationPublishedPayload, messageEnv: MessageEnv) {
+	// provider version info only relevant if descriptions exist since these are
+	// separate events for each version
+	const consumerVersionNumber = e.consumerVersionNumber;
+	const consumerVersionBranch = e.consumerVersionBranch;
+	const { branchLink, githubLink } = createGithubLinks(messageEnv, e.consumerName, consumerVersionBranch, consumerVersionNumber);
+	const pactBrokerURL = // get the base URL from e.pactUrl
+		e.pactUrl.split('/pacts/')[0];
+	const diffUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}/diff/previous-distinct`;
+	return `Consumer *${e.consumerName}* ${branchLink}${githubLink} published new/updated <${e.pactUrl}|contract>. <${diffUrl}|Diff> with previous distinct version of this pact.`;
 }
 
 function createCommitLink(messageEnv: MessageEnv, repo: string, commitHash: string): string {

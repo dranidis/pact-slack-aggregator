@@ -7,6 +7,7 @@ import { mockTime, resetTime } from '../src/time-utils';
 
 interface SlackCallMock {
 	text?: string;
+	channel: string;
 	blocks?: {
 		text?: {
 			text?: string;
@@ -28,8 +29,11 @@ describe('Pact Slack Aggregator Worker', () => {
 
 		vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: { body: string }) => {
 			if (url.includes('slack.com/api/chat.postMessage')) {
-				slackCalls.push(JSON.parse(options.body) as SlackCallMock);
-				return Promise.resolve({
+				const payload = JSON.parse(options.body) as SlackCallMock;
+				console.log('Parsed Slack payload:', payload);
+				if (payload.channel === env.SLACK_CHANNEL) {
+					slackCalls.push(payload);
+				} return Promise.resolve({
 					json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
 					ok: true
 				});

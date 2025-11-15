@@ -66,6 +66,7 @@ export interface DebugInfo {
 	slackChannel: string;
 	githubBaseUrl: string;
 	pacticipantToRepoMap: Record<string, string>;
+	publicationThreads: Record<string, string>;
 }
 
 export interface SlackPostMessageRequest {

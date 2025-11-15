@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { now, getMinuteBucket } from "./time-utils";
-import type { PactEventData, StoredPactEventData, DebugInfo } from './types';
+import type { PactEventData, StoredPactEventData, DebugInfo, ContractRequiringVerificationPublishedPayload, ProviderVerificationPublishedPayload, BasePactWebhookPayload } from './types';
 
 /**
  * Cloudflare Durable Objects ensure that:
@@ -120,7 +120,26 @@ export class PactAggregator extends DurableObject<Env> {
 			slackChannel: this.env.SLACK_CHANNEL,
 			githubBaseUrl: this.env.GITHUB_BASE_URL,
 			pacticipantToRepoMap: this.env.PACTICIPANT_TO_REPO_MAP,
+			publicationThreads: await this.getAllPublicationThreads()
 		};
+	}
+
+	/**
+	 * Store the Slack thread timestamp for a publication event in a dictionary under 'publicationThreads'
+	 */
+	async setPublicationThreadTs(pub: ContractRequiringVerificationPublishedPayload, channel: string, threadTs: string): Promise<void> {
+		const key = this.makeKeyForPublicationThred(pub, channel);
+		const threads: Record<string, string> = await this.getAllPublicationThreads();
+		threads[key] = threadTs;
+		await this.ctx.storage.put('publicationThreads', threads);
+	}
+	/**
+	 * Retrieve the Slack thread timestamp for a publication event from the dictionary
+	 */
+	async getPublicationThreadTs(ver: ProviderVerificationPublishedPayload, channel: string): Promise<string | undefined> {
+		const key = this.makeKeyForPublicationThred(ver, channel);
+		const threads: Record<string, string> = await this.getAllPublicationThreads();
+		return threads[key];
 	}
 
 	/**
@@ -243,6 +262,15 @@ export class PactAggregator extends DurableObject<Env> {
 		const currentTotal: number = ((await this.ctx.storage.get("totalProcessed"))!) || 0;
 		await this.ctx.storage.put("totalProcessed", currentTotal + processedCount);
 		await this.ctx.storage.put("lastProcessedCount", processedCount);
+	}
+
+	private async getAllPublicationThreads(): Promise<Record<string, string>> {
+		const threads: Record<string, string> = (await this.ctx.storage.get('publicationThreads')) ?? {};
+		return threads;
+	}
+
+	private makeKeyForPublicationThred(pub: BasePactWebhookPayload | ProviderVerificationPublishedPayload, channel: string) {
+		return `${pub.providerName}|${pub.consumerName}|${pub.consumerVersionBranch}|${pub.consumerVersionNumber}|${channel}`;
 	}
 
 	private createBucketKey(minute: string) {

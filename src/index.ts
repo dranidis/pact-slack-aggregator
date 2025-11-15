@@ -1,14 +1,13 @@
-
 import { now } from "./time-utils";
 import type {
 	PactWebhookPayload,
 	PactEventData,
 	StoredPactEventData,
-	DebugInfo
+	DebugInfo,
 } from './types';
 import { getEventDataFromPayload } from './payload-utils';
-import { createSummaryAndDetailsMessages } from "./messages";
-import { postPacticipantEventsToSlack } from "./slack";
+import { createPublicationSummaryTextForProviderChannel, createSummaryAndDetailsMessages, createVerificationThreadDetailsForProviderChannel } from "./messages";
+import { postPacticipantEventsToSlack, slackPost } from "./slack";
 export { PactAggregator } from './pact-aggregator';
 
 export default {
@@ -53,6 +52,9 @@ export default {
 
 			await getPactAggregatorStub(env).addEvent(eventData);
 
+			// Also send to provider-specific channel
+			await postToProvidersChannel(rawPayload, env);
+
 			return new Response("OK", { status: 200 });
 		} catch (err) {
 			console.error("Webhook processing error", err);
@@ -67,6 +69,38 @@ export default {
 		}
 	},
 };
+
+async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) {
+	const providerChannel = `#ci-${rawPayload.providerName}`;
+
+	if (rawPayload.eventType === "contract_requiring_verification_published") {
+		const pub = rawPayload;
+		const summaryText = createPublicationSummaryTextForProviderChannel(pub, env);
+
+		// Post to Slack and get thread timestamp
+		const summaryResp = await slackPost({
+			SLACK_CHANNEL: providerChannel,
+			SLACK_TOKEN: env.SLACK_TOKEN
+		}, summaryText);
+
+		// Store thread timestamp in Durable Object
+		await getPactAggregatorStub(env).setPublicationThreadTs(pub, providerChannel, summaryResp.ts!);
+	}
+
+	// If this is a verification result, post in the thread
+	if (rawPayload.eventType === "provider_verification_published") {
+		const ver = rawPayload;
+		const threadTs = await getPactAggregatorStub(env).getPublicationThreadTs(ver, providerChannel);
+		console.log(`Posting verification result to channel ${providerChannel} in thread ${threadTs}`);
+		if (threadTs) {
+			const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
+			await slackPost({
+				SLACK_CHANNEL: providerChannel,
+				SLACK_TOKEN: env.SLACK_TOKEN
+			}, verificationThreadDetail, threadTs);
+		}
+	}
+}
 
 function shouldProcessAtCurrentTime(env: Env): boolean {
 	const currentTime = now();
