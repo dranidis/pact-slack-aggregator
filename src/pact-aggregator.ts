@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { now, getMinuteBucket } from "./time-utils";
-import type { PactEventData, StoredPactEventData, DebugInfo, ContractRequiringVerificationPublishedPayload, ProviderVerificationPublishedPayload, BasePactWebhookPayload } from './types';
+import type { PactEventData, StoredPactEventData, DebugInfo, ContractRequiringVerificationPublishedPayload, ProviderVerificationPublishedPayload } from './types';
+import { getPactVersionFromPayload } from "./payload-utils";
 
 /**
  * Cloudflare Durable Objects ensure that:
@@ -128,7 +129,7 @@ export class PactAggregator extends DurableObject<Env> {
 	 * Store the Slack thread timestamp for a publication event in a dictionary under 'publicationThreads'
 	 */
 	async setPublicationThreadTs(pub: ContractRequiringVerificationPublishedPayload, channel: string, threadTs: string): Promise<void> {
-		const key = this.makeKeyForPublicationThred(pub, channel);
+		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, string> = await this.getAllPublicationThreads();
 		threads[key] = threadTs;
 		await this.ctx.storage.put('publicationThreads', threads);
@@ -137,7 +138,7 @@ export class PactAggregator extends DurableObject<Env> {
 	 * Retrieve the Slack thread timestamp for a publication event from the dictionary
 	 */
 	async getPublicationThreadTs(ver: ProviderVerificationPublishedPayload, channel: string): Promise<string | undefined> {
-		const key = this.makeKeyForPublicationThred(ver, channel);
+		const key = this.makeKeyForPublicationThread(ver, channel);
 		const threads: Record<string, string> = await this.getAllPublicationThreads();
 		return threads[key];
 	}
@@ -269,8 +270,10 @@ export class PactAggregator extends DurableObject<Env> {
 		return threads;
 	}
 
-	private makeKeyForPublicationThred(pub: BasePactWebhookPayload | ProviderVerificationPublishedPayload, channel: string) {
-		return `${pub.providerName}|${pub.consumerName}|${pub.consumerVersionBranch}|${pub.consumerVersionNumber}|${channel}`;
+	private makeKeyForPublicationThread(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string) {
+		const pactVersion = getPactVersionFromPayload(pub);
+
+		return `${pub.providerName}|${pub.consumerName}|${pub.consumerVersionBranch}|${pactVersion}|${channel}`;
 	}
 
 	private createBucketKey(minute: string) {
@@ -280,3 +283,5 @@ export class PactAggregator extends DurableObject<Env> {
 		return parseInt(bucketKey.split(":")[1]);
 	}
 }
+
+

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { mockTime, now } from '../src/time-utils';
-import { expectTimestampToBeRecent, createUniqueTestId, makeProviderVerificationEventData, makeContractPublicationEventData, makeContractPublicationPayload } from './test-utilities';
+import { expectTimestampToBeRecent, createUniqueTestId, makeProviderVerificationEventData, makeContractPublicationEventData, makeContractPublicationPayload, makeProviderVerificationPayload } from './test-utilities';
 import { PactAggregator } from '../src';
 
 describe('PactAggregator', () => {
@@ -356,6 +356,7 @@ describe('PactAggregator', () => {
 				consumerName: 'Engine',
 				consumerVersionNumber: 'ver123',
 				consumerVersionBranch: 'branchA',
+				pactUrl: 'https://example.com/pacts/provider/API/consumer/Engine/pact-version/pactver123',
 			});
 
 			// Add a publication event
@@ -363,8 +364,21 @@ describe('PactAggregator', () => {
 
 			// Get debug info
 			const debugInfo = await aggregator.getDebugInfo();
+
+			console.debug("Debug Info Publication Threads:", debugInfo.publicationThreads);
 			expect(debugInfo.publicationThreads).toBeDefined();
-			expect(debugInfo.publicationThreads['API|Engine|branchA|ver123|#ci-API']).toBe('thread123');
+			expect(debugInfo.publicationThreads['API|Engine|branchA|pactver123|#ci-API']).toBe('thread123');
+
+			const ver = makeProviderVerificationPayload({
+				providerName: 'API',
+				consumerName: 'Engine',
+				consumerVersionNumber: 'ver123',
+				consumerVersionBranch: 'branchA',
+				verificationResultUrl: 'https://example.com/pacts/provider/API/consumer/Engine/pact-version/pactver123/verification-results/456',
+			});
+
+			const threadTs = await aggregator.getPublicationThreadTs(ver, '#ci-API');
+			expect(threadTs).toBe('thread123');
 		});
 	});
 });
