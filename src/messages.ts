@@ -109,6 +109,19 @@ export function createPublicationSummaryTextForProviderChannel(e: ContractRequir
 	return `Consumer *${e.consumerName}* ${branchLink}${githubLink} published new/updated <${e.pactUrl}|contract>. <${diffUrl}|Diff> with previous distinct version of this pact.`;
 }
 
+export function createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(e: ProviderVerificationPublishedPayload, messageEnv: MessageEnv) {
+	// provider version info only relevant if descriptions exist since these are
+	// separate events for each version
+	const consumerVersionNumber = e.consumerVersionNumber;
+	const consumerVersionBranch = e.consumerVersionBranch;
+	const { branchLink, githubLink } = createGithubLinks(messageEnv, e.consumerName, consumerVersionBranch, consumerVersionNumber);
+	const pactBrokerURL = // get the base URL from e.
+		e.verificationResultUrl.split('/pacts/')[0];
+	const diffUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}/diff/previous-distinct`;
+	const pactUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}`;
+	return `Consumer *${e.consumerName}* ${branchLink}${githubLink} <${pactUrl}|contract>. <${diffUrl}|Diff> with previous distinct version of this pact.`;
+}
+
 function createCommitLink(messageEnv: MessageEnv, repo: string, commitHash: string): string {
 	return ` <${messageEnv.GITHUB_BASE_URL}/${repo}/commit/${commitHash}|${commitHash.substring(0, 7)}>`;
 }

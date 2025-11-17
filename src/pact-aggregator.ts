@@ -128,7 +128,7 @@ export class PactAggregator extends DurableObject<Env> {
 	/**
 	 * Store the Slack thread timestamp for a publication event in a dictionary under 'publicationThreads'
 	 */
-	async setPublicationThreadTs(pub: ContractRequiringVerificationPublishedPayload, channel: string, threadTs: string): Promise<void> {
+	async setPublicationThreadTs(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string, threadTs: string): Promise<void> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, string> = await this.getAllPublicationThreads();
 		threads[key] = threadTs;

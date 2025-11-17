@@ -6,7 +6,7 @@ import type {
 	DebugInfo,
 } from './types';
 import { getEventDataFromPayload } from './payload-utils';
-import { createPublicationSummaryTextForProviderChannel, createSummaryAndDetailsMessages, createVerificationThreadDetailsForProviderChannel } from "./messages";
+import { createPublicationSummaryTextForProviderChannel, createPublicationSummaryTextForProviderChannelForVerificationWithoutThread, createSummaryAndDetailsMessages, createVerificationThreadDetailsForProviderChannel } from "./messages";
 import { postPacticipantEventsToSlack, slackPost } from "./slack";
 export { PactAggregator } from './pact-aggregator';
 
@@ -90,15 +90,24 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 	// If this is a verification result, post in the thread
 	if (rawPayload.eventType === "provider_verification_published") {
 		const ver = rawPayload;
-		const threadTs = await getPactAggregatorStub(env).getPublicationThreadTs(ver, providerChannel);
+		let threadTs = await getPactAggregatorStub(env).getPublicationThreadTs(ver, providerChannel);
 		console.log(`Posting verification result to channel ${providerChannel} in thread ${threadTs}`);
-		if (threadTs) {
-			const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
-			await slackPost({
+
+		if (!threadTs) {
+			const summaryText = createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(ver, env);
+			threadTs = (await slackPost({
 				SLACK_CHANNEL: providerChannel,
 				SLACK_TOKEN: env.SLACK_TOKEN
-			}, verificationThreadDetail, threadTs);
+			}, summaryText)).ts!;
 		}
+
+		await getPactAggregatorStub(env).setPublicationThreadTs(ver, providerChannel, threadTs);
+
+		const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
+		await slackPost({
+			SLACK_CHANNEL: providerChannel,
+			SLACK_TOKEN: env.SLACK_TOKEN
+		}, verificationThreadDetail, threadTs);
 	}
 }
 
