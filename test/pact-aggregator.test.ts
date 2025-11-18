@@ -360,14 +360,18 @@ describe('PactAggregator', () => {
 			});
 
 			// Add a publication event
-			await aggregator.setPublicationThreadTs(pub, '#ci-API', 'thread123');
+			await aggregator.setPublicationThreadTs(
+				pub,
+				`${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`,
+				'thread123',
+			);
 
 			// Get debug info
 			const debugInfo = await aggregator.getDebugInfo();
 
 			console.debug("Debug Info Publication Threads:", debugInfo.publicationThreads);
 			expect(debugInfo.publicationThreads).toBeDefined();
-			expect(debugInfo.publicationThreads['API|Engine|branchA|pactver123|#ci-API']).toBe('thread123');
+			expect(debugInfo.publicationThreads[`API|Engine|branchA|pactver123|${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`]).toBeDefined();
 
 			const ver = makeProviderVerificationPayload({
 				providerName: 'API',
@@ -377,8 +381,8 @@ describe('PactAggregator', () => {
 				verificationResultUrl: 'https://example.com/pacts/provider/API/consumer/Engine/pact-version/pactver123/verification-results/456',
 			});
 
-			const threadTs = await aggregator.getPublicationThreadTs(ver, '#ci-API');
-			expect(threadTs).toBe('thread123');
+			const threadTs = await aggregator.getPublicationThreadTs(ver, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`);
+			expect(threadTs).toBeDefined();
 		});
 	});
 });

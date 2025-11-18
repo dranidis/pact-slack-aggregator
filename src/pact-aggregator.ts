@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { now, getMinuteBucket } from "./time-utils";
-import type { PactEventData, StoredPactEventData, DebugInfo, ContractRequiringVerificationPublishedPayload, ProviderVerificationPublishedPayload } from './types';
+import type { PactEventData, StoredPactEventData, DebugInfo, ContractRequiringVerificationPublishedPayload, ProviderVerificationPublishedPayload, PublicationThreadInfo } from './types';
 import { getPactVersionFromPayload } from "./payload-utils";
 
 /**
@@ -121,17 +121,35 @@ export class PactAggregator extends DurableObject<Env> {
 			slackChannel: this.env.SLACK_CHANNEL,
 			githubBaseUrl: this.env.GITHUB_BASE_URL,
 			pacticipantToRepoMap: this.env.PACTICIPANT_TO_REPO_MAP,
-			publicationThreads: await this.getAllPublicationThreads()
+			publicationThreads: await this.getAllPublicationThreads(),
 		};
 	}
 
 	/**
 	 * Store the Slack thread timestamp for a publication event in a dictionary under 'publicationThreads'
 	 */
-	async setPublicationThreadTs(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string, threadTs: string): Promise<void> {
+	async setPublicationThreadTs(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string, threadTs: string, channelId?: string): Promise<void> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
-		const threads: Record<string, string> = await this.getAllPublicationThreads();
-		threads[key] = threadTs;
+		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
+		// Remove any other entries with same provider|consumer|branch (regardless of pact version or channel)
+		// We only keep the most recent publication thread metadata for that trio.
+		const targetProvider = pub.providerName;
+		const targetConsumer = pub.consumerName;
+		const targetBranch = pub.consumerVersionBranch;
+		for (const existingKey of Object.keys(threads)) {
+			if (existingKey === key) continue;
+			const [providerName, consumerName, branch] = existingKey.split('|');
+			if (providerName === targetProvider && consumerName === targetConsumer && branch === targetBranch) {
+				delete threads[existingKey];
+			}
+		}
+		const existing = threads[key];
+		threads[key] = {
+			ts: threadTs,
+			channelId: channelId ?? existing?.channelId,
+			payload: pub, // always store latest payload
+			summary: existing?.summary // legacy fallback retained (will be ignored if payload present)
+		};
 		await this.ctx.storage.put('publicationThreads', threads);
 	}
 	/**
@@ -139,8 +157,30 @@ export class PactAggregator extends DurableObject<Env> {
 	 */
 	async getPublicationThreadTs(ver: ProviderVerificationPublishedPayload, channel: string): Promise<string | undefined> {
 		const key = this.makeKeyForPublicationThread(ver, channel);
-		const threads: Record<string, string> = await this.getAllPublicationThreads();
-		return threads[key];
+		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
+		return threads[key]?.ts;
+	}
+
+	async getPublicationSummaryText(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string): Promise<ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload | undefined> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
+		return threads[key]?.payload;
+	}
+
+	async setPublicationSummaryText(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string, summaryText: string): Promise<void> {
+		// Deprecated: only used for legacy upgrade scenarios
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
+		if (threads[key]) {
+			threads[key].summary = summaryText;
+			await this.ctx.storage.put('publicationThreads', threads);
+		}
+	}
+
+	async getPublicationChannelId(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string): Promise<string | undefined> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
+		return threads[key]?.channelId;
 	}
 
 	/**
@@ -265,8 +305,8 @@ export class PactAggregator extends DurableObject<Env> {
 		await this.ctx.storage.put("lastProcessedCount", processedCount);
 	}
 
-	private async getAllPublicationThreads(): Promise<Record<string, string>> {
-		const threads: Record<string, string> = (await this.ctx.storage.get('publicationThreads')) ?? {};
+	private async getAllPublicationThreads(): Promise<Record<string, PublicationThreadInfo>> {
+		const threads: Record<string, PublicationThreadInfo> = (await this.ctx.storage.get('publicationThreads')) ?? {};
 		return threads;
 	}
 

@@ -8,6 +8,7 @@
 	},
 	"vars": {
 		"SLACK_CHANNEL": "#your-channel",
+		"PROVIDER_CHANNEL_PREFIX": "#pact-",
 		"GITHUB_BASE_URL": "https://github.com/your-org",
 		"PACTICIPANT_TO_REPO_MAP": { "ServiceA": "repo-a", "ServiceB": "repo-b" },
 		"TIMEZONE": "UTC",

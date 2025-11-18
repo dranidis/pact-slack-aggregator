@@ -141,3 +141,25 @@ curl -X GET $PACT_URL/webhooks
 ```
 
 In folder `pact-broker-webhooks` read the `README` file for instructions.
+
+## Local development with Pact-broker in docker
+
+For a Pact broker webhook to communicate from inside Docker to the host localhost POST to `http://host.docker.internal:8787` and
+run wrangler at ip `0.0.0.0`:
+
+```
+wrangler dev --port 8787 --ip 0.0.0.0 --config wrangler.dev.jsonc
+```
+
+Also add to the docker file the environment variables:
+
+```
+      PACT_BROKER_WEBHOOK_SCHEME_WHITELIST: 'https http'
+```
+
+And map host.docker.internal so the container can reach services running on the host (eg. webhook target on host port 8787)
+
+```
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```

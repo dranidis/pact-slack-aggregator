@@ -20,6 +20,13 @@ export function getPactVersionFromPayload(pub: ProviderVerificationPublishedPayl
 	return match ? match[1] : undefined;
 }
 
+export function getProviderSlackChannel(env: Env, rawPayload: PactWebhookPayload) {
+	const basePrefix = env.PROVIDER_CHANNEL_PREFIX ?? '#pact-';
+	const normalizedPrefix = basePrefix.startsWith('#') ? basePrefix : `#${basePrefix}`;
+	const providerSlackChannel = `${normalizedPrefix}${rawPayload.providerName}`;
+	return providerSlackChannel;
+}
+
 function getPacticipant(payload: BasePactWebhookPayload): string {
 	switch (payload.eventType) {
 		case PROVIDER_VERIFICATION_PUBLISHED:

@@ -13,6 +13,14 @@ export interface MessageEnv {
 	FAILURE_EMOJI: string;
 }
 
+
+export function getPublicationSummaryFromOriginalPayload(originalPayload: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, env: MessageEnv): string {
+	if (originalPayload.eventType === 'contract_requiring_verification_published') {
+		return createPublicationSummaryTextForProviderChannel(originalPayload, env);
+	}
+	return createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(originalPayload, env);
+}
+
 export function createSummaryAndDetailsMessages(
 	messageEnv: MessageEnv,
 	pacticipant: string,
@@ -120,6 +128,14 @@ export function createPublicationSummaryTextForProviderChannelForVerificationWit
 	const diffUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}/diff/previous-distinct`;
 	const pactUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}`;
 	return `Consumer *${e.consumerName}* ${branchLink}${githubLink} <${pactUrl}|contract>. <${diffUrl}|Diff> with previous distinct version of this pact.`;
+}
+
+// Append verification status line to an existing publication summary message for provider channel
+export function appendVerificationStatusToProviderPublicationSummary(originalSummary: string, ver: ProviderVerificationPublishedPayload, messageEnv: MessageEnv) {
+	const statusEmoji = ver.githubVerificationStatus === 'success' ? messageEnv.SUCCESS_EMOJI : messageEnv.FAILURE_EMOJI;
+	// Keep original summary; add a blank line to separate if not already ending with newline
+	const prefix = originalSummary.endsWith('\n') ? '' : '\n';
+	return `${originalSummary}${prefix}Verification on *${ver.providerVersionBranch}*: ${statusEmoji} <${ver.verificationResultUrl}|Results>`;
 }
 
 function createCommitLink(messageEnv: MessageEnv, repo: string, commitHash: string): string {

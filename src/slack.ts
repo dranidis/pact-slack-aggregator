@@ -1,4 +1,4 @@
-import type { SlackPostMessageRequest, SlackPostMessageResponse } from './types';
+import type { SlackPostMessageRequest, SlackPostMessageResponse, SlackUpdateMessageRequest } from './types';
 
 // Minimal environment interface for Slack operations
 export interface SlackEnv {
@@ -20,11 +20,9 @@ export async function slackPost(slackEnv: SlackEnv, text: string, threadTs?: str
 	const body: SlackPostMessageRequest = {
 		text,
 		channel: slackEnv.SLACK_CHANNEL,
-	} as SlackPostMessageRequest;
+	};
 
-	if (threadTs) {
-		body.thread_ts = threadTs;
-	}
+	if (threadTs) body.thread_ts = threadTs;
 
 	const res = await fetch("https://slack.com/api/chat.postMessage", {
 		method: "POST",
@@ -45,7 +43,31 @@ export async function slackPost(slackEnv: SlackEnv, text: string, threadTs?: str
 			messageLength: body.text?.length
 		});
 	} else {
-		console.log("✅ Slack message sent successfully", { ts: json.ts, channel: body.channel, text: body.text.substring(0, 30) + '...' });// Limit text length in logs
+		console.log("✅ Slack message sent successfully", { ts: json.ts, channel: json.channel, text: body.text.substring(0, 30) + '...' });
+	}
+	return json;
+}
+
+export async function slackUpdate(slackEnv: SlackEnv, ts: string, newText: string): Promise<SlackPostMessageResponse> {
+	const body: SlackUpdateMessageRequest = {
+		text: newText,
+		channel: slackEnv.SLACK_CHANNEL, // expect channel ID here
+		ts
+	};
+
+	const res = await fetch("https://slack.com/api/chat.update", {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(body),
+	});
+	const json: SlackPostMessageResponse = await res.json();
+	if (!json.ok) {
+		console.error("❌ Slack API Error (update):", { error: json.error, needed: json.needed, provided: json.provided, channel: body.channel, ts });
+	} else {
+		console.log("✅ Slack message updated successfully", { ts: body.ts, channel: body.channel });
 	}
 	return json;
 }

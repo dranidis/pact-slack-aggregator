@@ -1,7 +1,7 @@
 {
 	"eventType": "contract_requiring_verification_published",
-	"providerName": "API",
-	"pactUrl": "https://pactbroker/consumer/Engine/pact-version/680f588ac549df922f920c2557c00bfc8c0aff75/metadata/Y3ZuPTcyYTgwZTM4OTUzMGNkZjkyYmM3NzE5MzY4YWE1ZmVjMDBmMjMzYzQmdz10cnVl",
+	"providerName": "ProductsAPI2",
+	"pactUrl": "https://pactbroker/consumer/Engine/pact-version/80f588ac549df922f920c2557c00bfc8c0aff74/metadata/Y3ZuPTcyYTgwZTM4OTUzMGNkZjkyYmM3NzE5MzY4YWE1ZmVjMDBmMjMzYzQmdz10cnVl",
 	"consumerName": "Engine",
 	"consumerVersionBranch": "feature/consumer/F123",
 	"providerVersionBranch": "feature/provider/F123",

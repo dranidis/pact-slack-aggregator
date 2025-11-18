@@ -1,11 +1,11 @@
 {
 	"eventType": "provider_verification_published",
-	"providerName": "API",
+	"providerName": "ProductsAPI2",
 	"githubVerificationStatus": "success",
-	"verificationResultUrl": "https://pactbroker/pacts/provider/API/consumer/Engine/pact-version/7e1afbb2a70cc41537a30a2c45d5b2bb57faf069/verification-results/32444",
+	"verificationResultUrl": "https://pactbroker/pacts/provider/API/consumer/Engine/pact-version/80f588ac549df922f920c2557c00bfc8c0aff74/verification-results/32444",
 	"consumerName": "Engine",
 	"consumerVersionBranch": "feature/consumer/F123",
-	"providerVersionBranch": "feature/provider/F123",
+	"providerVersionBranch": "master",
 	"consumerVersionNumber": "82a80e389530cdf92bc7719368aa5fec00f233c3",
 	"providerVersionNumber": "68f58c450b1076ed8a56c40ec84e1ded0fdd3b80"
 }

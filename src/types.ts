@@ -50,6 +50,15 @@ export interface StoredContractRequiringVerificationEventData extends ContractRe
 
 export type StoredPactEventData = StoredProviderVerificationEventData | StoredContractRequiringVerificationEventData;
 
+export interface PublicationThreadInfo {
+	ts: string; // root message timestamp
+	channelId?: string; // Slack channel Id
+	// Store the original webhook payload that created the root message so we can derive summary text later
+	payload?: ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload;
+	// Legacy field kept for backward compatibility (existing stored entries before refactor)
+	summary?: string;
+}
+
 export interface DebugInfo {
 	currentTime: string;
 	lastEventTime: string;
@@ -66,18 +75,26 @@ export interface DebugInfo {
 	slackChannel: string;
 	githubBaseUrl: string;
 	pacticipantToRepoMap: Record<string, string>;
-	publicationThreads: Record<string, string>;
+	publicationThreads: Record<string, PublicationThreadInfo>;
 }
 
 export interface SlackPostMessageRequest {
 	text: string;
 	channel: string;
-	thread_ts: string;
+	thread_ts?: string; // optional for root messages or updates
+}
+
+// Slack update message request (chat.update)
+export interface SlackUpdateMessageRequest {
+	text: string;
+	channel: string;
+	ts: string; // timestamp of the message to update
 }
 
 export interface SlackPostMessageResponse {
 	ok: boolean;
 	ts?: string;
+	channel?: string;
 	error?: string;
 	needed?: string;
 	provided?: string;
