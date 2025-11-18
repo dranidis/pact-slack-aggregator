@@ -1,7 +1,14 @@
-import { DurableObject } from "cloudflare:workers";
-import { now, getMinuteBucket } from "./time-utils";
-import type { PactEventData, StoredPactEventData, DebugInfo, ContractRequiringVerificationPublishedPayload, ProviderVerificationPublishedPayload, PublicationThreadInfo } from './types';
-import { getPactVersionFromPayload } from "./payload-utils";
+import { DurableObject } from 'cloudflare:workers';
+import { now, getMinuteBucket } from './time-utils';
+import type {
+	PactEventData,
+	StoredPactEventData,
+	DebugInfo,
+	ContractRequiringVerificationPublishedPayload,
+	ProviderVerificationPublishedPayload,
+	PublicationThreadInfo,
+} from './types';
+import { getPactVersionFromPayload } from './payload-utils';
 
 /**
  * Cloudflare Durable Objects ensure that:
@@ -34,13 +41,13 @@ export class PactAggregator extends DurableObject<Env> {
 
 			allEvents.get(currentBucketKey)!.push({
 				...eventData,
-				ts: currentTime
+				ts: currentTime,
 			} as StoredPactEventData);
 
 			await this.setLastEventTime(currentTime);
 			await this.setEvents(allEvents);
 		} catch (err) {
-			console.error("❌ addEvent: Error adding event:", err);
+			console.error('❌ addEvent: Error adding event:', err);
 		}
 	}
 
@@ -87,9 +94,8 @@ export class PactAggregator extends DurableObject<Env> {
 			}
 
 			return eventsToSend;
-
 		} catch (err) {
-			console.error("Error processing batches:", err);
+			console.error('Error processing batches:', err);
 			return [];
 		}
 	}
@@ -101,7 +107,11 @@ export class PactAggregator extends DurableObject<Env> {
 		const events = await this.getEvents();
 		const { totalProcessed, lastProcessedCount } = await this.getProcessingStats();
 
-		console.log(`ENV VARIABLES: GITHUB_BASE_URL=${this.env.GITHUB_BASE_URL} PACTICIPANT_TO_REPO_MAP=${JSON.stringify(this.env.PACTICIPANT_TO_REPO_MAP)}`);
+		console.log(
+			`ENV VARIABLES: GITHUB_BASE_URL=${this.env.GITHUB_BASE_URL} PACTICIPANT_TO_REPO_MAP=${JSON.stringify(
+				this.env.PACTICIPANT_TO_REPO_MAP
+			)}`
+		);
 
 		return {
 			currentTime: new Date(currentTime).toISOString(),
@@ -110,7 +120,7 @@ export class PactAggregator extends DurableObject<Env> {
 			eventBuckets: Object.fromEntries(
 				Array.from(events.entries()).map(([key, eventList]: [string, StoredPactEventData[]]) => [
 					key,
-					{ count: eventList.length, events: eventList }
+					{ count: eventList.length, events: eventList },
 				])
 			),
 			totalEvents: Array.from(events.values()).reduce((sum, eventList) => sum + eventList.length, 0),
@@ -128,7 +138,12 @@ export class PactAggregator extends DurableObject<Env> {
 	/**
 	 * Store the Slack thread timestamp for a publication event in a dictionary under 'publicationThreads'
 	 */
-	async setPublicationThreadTs(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string, threadTs: string, channelId?: string): Promise<void> {
+	async setPublicationThreadTs(
+		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
+		channel: string,
+		threadTs: string,
+		channelId?: string
+	): Promise<void> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
 		// Remove any other entries with same provider|consumer|branch (regardless of pact version or channel)
@@ -140,7 +155,7 @@ export class PactAggregator extends DurableObject<Env> {
 			if (existingKey === key) continue;
 			const [providerName, consumerName, branch] = existingKey.split('|');
 			if (providerName === targetProvider && consumerName === targetConsumer && branch === targetBranch) {
-				delete threads[existingKey];
+				// delete threads[existingKey];
 			}
 		}
 		const existing = threads[key];
@@ -148,7 +163,7 @@ export class PactAggregator extends DurableObject<Env> {
 			ts: threadTs,
 			channelId: channelId ?? existing?.channelId,
 			payload: pub, // always store latest payload
-			summary: existing?.summary // legacy fallback retained (will be ignored if payload present)
+			summary: existing?.summary, // legacy fallback retained (will be ignored if payload present)
 		};
 		await this.ctx.storage.put('publicationThreads', threads);
 	}
@@ -161,13 +176,20 @@ export class PactAggregator extends DurableObject<Env> {
 		return threads[key]?.ts;
 	}
 
-	async getPublicationSummaryText(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string): Promise<ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload | undefined> {
+	async getPublicationSummaryText(
+		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
+		channel: string
+	): Promise<ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload | undefined> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
 		return threads[key]?.payload;
 	}
 
-	async setPublicationSummaryText(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string, summaryText: string): Promise<void> {
+	async setPublicationSummaryText(
+		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
+		channel: string,
+		summaryText: string
+	): Promise<void> {
 		// Deprecated: only used for legacy upgrade scenarios
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
@@ -177,7 +199,10 @@ export class PactAggregator extends DurableObject<Env> {
 		}
 	}
 
-	async getPublicationChannelId(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string): Promise<string | undefined> {
+	async getPublicationChannelId(
+		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
+		channel: string
+	): Promise<string | undefined> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
 		return threads[key]?.channelId;
@@ -194,7 +219,7 @@ export class PactAggregator extends DurableObject<Env> {
 		const allEvents = await this.getEvents();
 
 		// Use the current minute bucket as the target bucket
-		const currentMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS)
+		const currentMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS);
 		const currentBucketKey = this.createBucketKey(currentMinute);
 
 		// Get version numbers from current bucket plus recent versions from previous bucket
@@ -208,9 +233,7 @@ export class PactAggregator extends DurableObject<Env> {
 		for (const [bucketKey, eventList] of allEvents.entries()) {
 			if (bucketKey !== currentBucketKey) {
 				for (const event of eventList) {
-					if (recentVersionNumbers.has(event.pacticipantVersionNumber)
-						&& event.ts > currentTime - this.env.MAX_TIME_BEFORE_FLUSHING
-					) {
+					if (recentVersionNumbers.has(event.pacticipantVersionNumber) && event.ts > currentTime - this.env.MAX_TIME_BEFORE_FLUSHING) {
 						eventsToMove.push({ eventToMove: event, fromBucket: bucketKey });
 					}
 				}
@@ -222,7 +245,11 @@ export class PactAggregator extends DurableObject<Env> {
 		await this.setEvents(allEvents);
 	}
 
-	private moveEvents(eventsToMove: { eventToMove: StoredPactEventData; fromBucket: string; }[], currentBucketKey: string, allEvents: Map<string, StoredPactEventData[]>) {
+	private moveEvents(
+		eventsToMove: { eventToMove: StoredPactEventData; fromBucket: string }[],
+		currentBucketKey: string,
+		allEvents: Map<string, StoredPactEventData[]>
+	) {
 		if (eventsToMove.length > 0) {
 			console.log(`Moving ${eventsToMove.length} events to current bucket ${currentBucketKey}`);
 		}
@@ -231,7 +258,8 @@ export class PactAggregator extends DurableObject<Env> {
 		for (const { eventToMove, fromBucket } of eventsToMove) {
 			// Remove from original bucket
 			const fromEventList = allEvents.get(fromBucket)!;
-			const eventIndexToMove = fromEventList.findIndex(e => e.ts === eventToMove.ts && e.pacticipantVersionNumber === eventToMove.pacticipantVersionNumber
+			const eventIndexToMove = fromEventList.findIndex(
+				(e) => e.ts === eventToMove.ts && e.pacticipantVersionNumber === eventToMove.pacticipantVersionNumber
 			);
 
 			// eventIndex should always be found
@@ -269,40 +297,40 @@ export class PactAggregator extends DurableObject<Env> {
 	}
 
 	private async getLastEventTime(): Promise<number> {
-		return ((await this.ctx.storage.get("lastEventTime"))!) || 0;
+		return (await this.ctx.storage.get('lastEventTime'))! || 0;
 	}
 
 	private async setLastEventTime(time: number): Promise<void> {
-		await this.ctx.storage.put("lastEventTime", time);
+		await this.ctx.storage.put('lastEventTime', time);
 	}
 
 	private async getLastProcessTime(): Promise<number> {
-		return ((await this.ctx.storage.get("lastProcessTime"))!) || 0;
+		return (await this.ctx.storage.get('lastProcessTime'))! || 0;
 	}
 
 	private async setLastProcessTime(time: number): Promise<void> {
-		await this.ctx.storage.put("lastProcessTime", time);
+		await this.ctx.storage.put('lastProcessTime', time);
 	}
 
 	private async getEvents(): Promise<Map<string, StoredPactEventData[]>> {
-		const storedEvents = (await this.ctx.storage.get("events"))!;
+		const storedEvents = (await this.ctx.storage.get('events'))!;
 		return storedEvents ? new Map(Object.entries(storedEvents)) : new Map();
 	}
 
 	private async setEvents(events: Map<string, StoredPactEventData[]>): Promise<void> {
-		await this.ctx.storage.put("events", Object.fromEntries(events));
+		await this.ctx.storage.put('events', Object.fromEntries(events));
 	}
 
 	private async getProcessingStats(): Promise<{ totalProcessed: number; lastProcessedCount: number }> {
-		const totalProcessed: number = ((await this.ctx.storage.get("totalProcessed"))!) || 0;
-		const lastProcessedCount: number = ((await this.ctx.storage.get("lastProcessedCount"))!) || 0;
+		const totalProcessed: number = (await this.ctx.storage.get('totalProcessed'))! || 0;
+		const lastProcessedCount: number = (await this.ctx.storage.get('lastProcessedCount'))! || 0;
 		return { totalProcessed, lastProcessedCount };
 	}
 
 	private async updateProcessingStats(processedCount: number): Promise<void> {
-		const currentTotal: number = ((await this.ctx.storage.get("totalProcessed"))!) || 0;
-		await this.ctx.storage.put("totalProcessed", currentTotal + processedCount);
-		await this.ctx.storage.put("lastProcessedCount", processedCount);
+		const currentTotal: number = (await this.ctx.storage.get('totalProcessed'))! || 0;
+		await this.ctx.storage.put('totalProcessed', currentTotal + processedCount);
+		await this.ctx.storage.put('lastProcessedCount', processedCount);
 	}
 
 	private async getAllPublicationThreads(): Promise<Record<string, PublicationThreadInfo>> {
@@ -310,7 +338,10 @@ export class PactAggregator extends DurableObject<Env> {
 		return threads;
 	}
 
-	private makeKeyForPublicationThread(pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string) {
+	private makeKeyForPublicationThread(
+		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
+		channel: string
+	) {
 		const pactVersion = getPactVersionFromPayload(pub);
 
 		return `${pub.providerName}|${pub.consumerName}|${pub.consumerVersionBranch}|${pactVersion}|${channel}`;
@@ -320,8 +351,6 @@ export class PactAggregator extends DurableObject<Env> {
 		return `events:${minute}`;
 	}
 	private getMinuteFromBucketKey(bucketKey: string) {
-		return parseInt(bucketKey.split(":")[1]);
+		return parseInt(bucketKey.split(':')[1]);
 	}
 }
-
-
