@@ -8,6 +8,7 @@
 		"dev": "wrangler dev --config wrangler.dev.jsonc",
 		"dev:prod": "wrangler dev",
 		"start": "wrangler dev --config wrangler.dev.jsonc",
+		"types": "wrangler types -c wrangler.prod.jsonc",
 		"test": "vitest",
 		"cf-typegen": "wrangler types",
 		"lint": "eslint . --ext .ts,.js,.mts",
