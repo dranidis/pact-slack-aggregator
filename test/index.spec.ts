@@ -2,7 +2,7 @@ import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloud
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import worker from '../src/index';
 import { makeProviderVerificationPayload, makeContractPublicationPayload, expectTimestampToBeRecent } from './test-utilities';
-import { ContractRequiringVerificationPublishedPayload, DebugInfo, ProviderVerificationPublishedPayload } from '../src/types';
+import { DebugInfo, PactWebhookPayload, ProviderVerificationPublishedPayload } from '../src/types';
 import { mockTime, resetTime } from '../src/time-utils';
 
 interface SlackCallMock {
@@ -22,24 +22,31 @@ describe('Pact Slack Aggregator Worker', () => {
 		vi.clearAllMocks();
 
 		// Mock fetch for Slack API calls
-		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-			json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
-			ok: true
-		}));
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
+				ok: true,
+			})
+		);
 
-		vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options: { body: string }) => {
-			if (url.includes('slack.com/api/chat.postMessage')) {
-				const payload = JSON.parse(options.body) as SlackCallMock;
-				console.log('Parsed Slack payload:', payload);
-				if (payload.channel === env.SLACK_CHANNEL) {
-					slackCalls.push(payload);
-				} return Promise.resolve({
-					json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
-					ok: true
-				});
-			}
-			return Promise.resolve({ ok: true });
-		}));
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockImplementation((url: string, options: { body: string }) => {
+				if (url.includes('slack.com/api/chat.postMessage')) {
+					const payload = JSON.parse(options.body) as SlackCallMock;
+					console.log('Parsed Slack payload:', payload);
+					if (payload.channel === env.SLACK_CHANNEL) {
+						slackCalls.push(payload);
+					}
+					return Promise.resolve({
+						json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
+						ok: true,
+					});
+				}
+				return Promise.resolve({ ok: true });
+			})
+		);
 	});
 
 	afterEach(() => {
@@ -57,7 +64,7 @@ describe('Pact Slack Aggregator Worker', () => {
 
 		it('should reject non-POST requests', async () => {
 			const response = await SELF.fetch('https://example.com', {
-				method: 'GET'
+				method: 'GET',
 			});
 
 			expect(response.status).toBe(405);
@@ -68,7 +75,7 @@ describe('Pact Slack Aggregator Worker', () => {
 			const response = await SELF.fetch(`https://example.com?key=${env.DEBUG_KEY}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: 'invalid json'
+				body: 'invalid json',
 			});
 
 			expect(response.status).toBe(500);
@@ -78,7 +85,7 @@ describe('Pact Slack Aggregator Worker', () => {
 			const response = await SELF.fetch(`https://example.com?key=wrong`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: 'invalid json'
+				body: 'invalid json',
 			});
 
 			expect(response.status).toBe(401);
@@ -88,7 +95,7 @@ describe('Pact Slack Aggregator Worker', () => {
 			const response = await SELF.fetch(`https://example.com`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: 'invalid json'
+				body: 'invalid json',
 			});
 
 			expect(response.status).toBe(401);
@@ -133,7 +140,7 @@ describe('Pact Slack Aggregator Worker', () => {
 			const scheduledEvent = {
 				type: 'scheduled',
 				scheduledTime: Date.now(),
-				cron: '*/5 * * * *'
+				cron: '*/5 * * * *',
 			} as ScheduledEvent;
 
 			// This should not throw
@@ -154,7 +161,7 @@ describe('Pact Slack Aggregator Worker', () => {
 				mockTime(() => currentMockTime);
 
 				// 1. Add events at time 10:00:00
-				const events: (ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload)[] = [
+				const events: PactWebhookPayload[] = [
 					makeProviderVerificationPayload({
 						providerName: 'UserService',
 						consumerName: 'WebApp',
@@ -163,7 +170,7 @@ describe('Pact Slack Aggregator Worker', () => {
 						consumerVersionBranch: 'main',
 						providerVersionBranch: 'main',
 						consumerVersionNumber: '5d54920bee2bea8501d604185212aa7808195083',
-						providerVersionNumber: '5d54920bee2bea8501d604185212aafds8081950'
+						providerVersionNumber: '5d54920bee2bea8501d604185212aafds8081950',
 					}),
 					makeProviderVerificationPayload({
 						providerName: 'PaymentService',
@@ -173,7 +180,7 @@ describe('Pact Slack Aggregator Worker', () => {
 						consumerVersionBranch: 'feature/payment-update',
 						providerVersionBranch: 'main',
 						consumerVersionNumber: 'e2bea8501d604185212aa78081950835d54920be',
-						providerVersionNumber: '50bee2bea8501d604185212aa7808195080d5492'
+						providerVersionNumber: '50bee2bea8501d604185212aa7808195080d5492',
 					}),
 					makeContractPublicationPayload({
 						providerName: 'NotificationService',
@@ -183,8 +190,8 @@ describe('Pact Slack Aggregator Worker', () => {
 						consumerVersionNumber: '5d549e2bea185212aa78081950838501d60420be',
 						providerVersionNumber: '50bee2bea8501d604185212aa7808195080d5492',
 						providerVersionBranch: 'main',
-						providerVersionDescriptions: 'latest from main branch'
-					})
+						providerVersionDescriptions: 'latest from main branch',
+					}),
 				];
 
 				// Add all events at 10:00:00 except last one at 10:01:00
@@ -194,7 +201,7 @@ describe('Pact Slack Aggregator Worker', () => {
 				}
 
 				// 2. Move time forward to 10:01:00 (exactly on the minute bucket)
-				currentMockTime = baseTime + (60 * 1000); // 60 seconds later
+				currentMockTime = baseTime + 60 * 1000; // 60 seconds later
 				mockTime(() => currentMockTime);
 				const expectedLastEventTime = currentMockTime;
 
@@ -206,14 +213,14 @@ describe('Pact Slack Aggregator Worker', () => {
 					consumerVersionBranch: 'feature/payment-update2',
 					providerVersionBranch: 'main',
 					consumerVersionNumber: '4185212aa78081950835d54920bee2bea8501d60',
-					providerVersionNumber: '50bee2bea8501d60808195080d54924185212aa7'
+					providerVersionNumber: '50bee2bea8501d60808195080d54924185212aa7',
 				});
 
 				const extraResponse = await sendEvent(extraEvent);
 				expect(extraResponse.status).toBe(200);
 
 				// 3. Move time forward to 10:01:30 (past the minute bucket)
-				currentMockTime = baseTime + (90 * 1000); // 90 seconds later
+				currentMockTime = baseTime + 90 * 1000; // 90 seconds later
 				const expectedLastProcessTime = currentMockTime;
 
 				// 4. Trigger batch processing
@@ -221,31 +228,25 @@ describe('Pact Slack Aggregator Worker', () => {
 				expect(triggerResponse.status).toBe(200);
 
 				// 5. Wait for processing to complete
-				await new Promise(resolve => setTimeout(resolve, 100));
+				await new Promise((resolve) => setTimeout(resolve, 100));
 
 				// 6. Verify all Slack summary and thread messages were sent
 				expect(slackCalls.length).toBe(2 * events.length);
 
 				// Check that we have messages for different pacticipants
-				const messages = slackCalls.map(call => (call.text ?? call.blocks?.[0]?.text?.text) ?? '');
+				const messages = slackCalls.map((call) => call.text ?? call.blocks?.[0]?.text?.text ?? '');
 				const allMessagesText = messages.join(' ');
 
 				// Verify messages contain our test data
-				const userServiceSummary =
-					`*UserService* <${env.GITHUB_BASE_URL}/user-service/tree/main|main> <${env.GITHUB_BASE_URL}/user-service/commit/5d54920bee2bea8501d604185212aafds8081950|5d54920>
+				const userServiceSummary = `*UserService* <${env.GITHUB_BASE_URL}/user-service/tree/main|main> <${env.GITHUB_BASE_URL}/user-service/commit/5d54920bee2bea8501d604185212aafds8081950|5d54920>
 Pact verifications: ${env.SUCCESS_EMOJI}1`;
-				const userServiceThread =
-					`${env.SUCCESS_EMOJI} <https://pact.example.com/verification-results/1|Results> | <https://pact.example.com|Pact> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
-				const paymentServiceSummary =
-					`*PaymentService* <${env.GITHUB_BASE_URL}/payment-service/tree/main|main> <${env.GITHUB_BASE_URL}/payment-service/commit/50bee2bea8501d604185212aa7808195080d5492|50bee2b>
+				const userServiceThread = `${env.SUCCESS_EMOJI} <https://pact.example.com/verification-results/1|Results> | <https://pact.example.com|Pact> *WebApp* <${env.GITHUB_BASE_URL}/web-app/tree/main|main> <${env.GITHUB_BASE_URL}/web-app/commit/5d54920bee2bea8501d604185212aa7808195083|5d54920>`;
+				const paymentServiceSummary = `*PaymentService* <${env.GITHUB_BASE_URL}/payment-service/tree/main|main> <${env.GITHUB_BASE_URL}/payment-service/commit/50bee2bea8501d604185212aa7808195080d5492|50bee2b>
 Pact verifications: ${env.FAILURE_EMOJI}1`;
-				const paymentServiceThread =
-					`${env.FAILURE_EMOJI} <https://pact.example.com/verification-results/2|Results> | <https://pact.example.com|Pact> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
-				const adminPanelSummary =
-					`*AdminPanel* <${env.GITHUB_BASE_URL}/admin-panel/tree/feature/new-notifications|feature/new-notifications> <${env.GITHUB_BASE_URL}/admin-panel/commit/5d549e2bea185212aa78081950838501d60420be|5d549e2>
+				const paymentServiceThread = `${env.FAILURE_EMOJI} <https://pact.example.com/verification-results/2|Results> | <https://pact.example.com|Pact> *MobileApp* <${env.GITHUB_BASE_URL}/mobile-app/tree/feature/payment-update|feature/payment-update> <${env.GITHUB_BASE_URL}/mobile-app/commit/e2bea8501d604185212aa78081950835d54920be|e2bea85>`;
+				const adminPanelSummary = `*AdminPanel* <${env.GITHUB_BASE_URL}/admin-panel/tree/feature/new-notifications|feature/new-notifications> <${env.GITHUB_BASE_URL}/admin-panel/commit/5d549e2bea185212aa78081950838501d60420be|5d549e2>
 Pact publications: 1`;
-				const adminPanelThread =
-					`Published <https://pact.example.com/pacts/adminpanel-notificationservice|contract> to be verified from provider *NotificationService*`;
+				const adminPanelThread = `Published <https://pact.example.com/pacts/adminpanel-notificationservice|contract> to be verified from provider *NotificationService*`;
 
 				expect(allMessagesText).toContain(userServiceSummary);
 				expect(allMessagesText).toContain(userServiceThread);
@@ -267,14 +268,14 @@ Pact publications: 1`;
 				expect(debugData.totalProcessedEvents).toBe(events.length);
 
 				// move time forward, trigger and verify last event is also sent
-				currentMockTime = baseTime + (150 * 1000); // 150 seconds later
+				currentMockTime = baseTime + 150 * 1000; // 150 seconds later
 
 				// Trigger batch processing again
 				const triggerResponse2 = await trigger();
 				expect(triggerResponse2.status).toBe(200);
 
 				// Wait for processing to complete
-				await new Promise(resolve => setTimeout(resolve, 100));
+				await new Promise((resolve) => setTimeout(resolve, 100));
 
 				// Verify Slack message was sent for the last event
 				expect(slackCalls.length).toBe(2 * events.length + 2); // +2 for summary and thread
@@ -293,7 +294,7 @@ Pact publications: 1`;
 				const eventDifferent = makeProviderVerificationPayload({
 					providerVersionNumber: 'differentVersion456',
 					providerName: 'NotConsolidatedService',
-					consumerName: 'NotConsolidatedConsumer'
+					consumerName: 'NotConsolidatedConsumer',
 				});
 				await sendEvent(eventDifferent);
 
@@ -305,7 +306,7 @@ Pact publications: 1`;
 				const event1 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123',
 					providerName: 'ServiceA',
-					consumerName: 'ConsumerX'
+					consumerName: 'ConsumerX',
 				});
 				await sendEvent(event1);
 
@@ -317,7 +318,7 @@ Pact publications: 1`;
 				const event2 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123', // Same version
 					providerName: 'ServiceA', // Same provider
-					consumerName: 'ConsumerY' // Different consumer
+					consumerName: 'ConsumerY', // Different consumer
 				});
 				await sendEvent(event2);
 
@@ -334,7 +335,7 @@ Pact publications: 1`;
 				await trigger();
 
 				// Wait for processing to complete
-				await new Promise(resolve => setTimeout(resolve, 100));
+				await new Promise((resolve) => setTimeout(resolve, 100));
 
 				// With consolidation logic:
 				// - eventDifferent (differentVersion456) stays in bucket1 and gets processed -> 2 Slack messages
@@ -342,11 +343,11 @@ Pact publications: 1`;
 				expect(slackCalls.length).toBe(2); // 1 summary + 1 thread for eventDifferent
 
 				// Verify the Slack message is for the different version event
-				const summaryMessage = slackCalls.find(call => call.text?.startsWith('*'));
+				const summaryMessage = slackCalls.find((call) => call.text?.startsWith('*'));
 				expect(summaryMessage?.text).toContain('NotConsolidatedService');
 				expect(summaryMessage?.text).toContain('Pact verifications: ✅1');
 
-				const threadMessage = slackCalls.find(call => !call.text?.startsWith('*'));
+				const threadMessage = slackCalls.find((call) => !call.text?.startsWith('*'));
 				expect(threadMessage?.text).toContain('NotConsolidatedConsumer');
 
 				// Verify events are consolidated in storage by checking debug info
@@ -360,7 +361,7 @@ Pact publications: 1`;
 				const recentBucketKey = Object.keys(debugData.eventBuckets).sort().pop()!;
 				const recentBucket = debugData.eventBuckets[recentBucketKey];
 				expect(recentBucket.count).toBe(2);
-				const pacticipantVersionNumbers = recentBucket.events.map(e => e.pacticipantVersionNumber);
+				const pacticipantVersionNumbers = recentBucket.events.map((e) => e.pacticipantVersionNumber);
 				expect(pacticipantVersionNumbers).toEqual(['version123', 'version123']);
 			} finally {
 				resetTime();
@@ -378,14 +379,14 @@ Pact publications: 1`;
 				const event0 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123',
 					providerName: 'ServiceA',
-					consumerName: 'Consumer'
+					consumerName: 'Consumer',
 				});
 
 				await sendEvent(event0);
 				const event1 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123',
 					providerName: 'ServiceA',
-					consumerName: 'Consumer'
+					consumerName: 'Consumer',
 				});
 				await sendEvent(event1);
 
@@ -397,12 +398,12 @@ Pact publications: 1`;
 				const event2 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123', // Same version
 					providerName: 'ServiceA',
-					consumerName: 'Consumer'
+					consumerName: 'Consumer',
 				});
 				await sendEvent(event2);
 
 				await trigger();
-				await new Promise(resolve => setTimeout(resolve, 100));
+				await new Promise((resolve) => setTimeout(resolve, 100));
 
 				expect(slackCalls.length).toBe(0);
 
@@ -412,7 +413,7 @@ Pact publications: 1`;
 				const event3 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123', // Same version
 					providerName: 'ServiceA',
-					consumerName: 'Consumer'
+					consumerName: 'Consumer',
 				});
 				await sendEvent(event3);
 
@@ -422,12 +423,12 @@ Pact publications: 1`;
 				const event4 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123', // Same version
 					providerName: 'ServiceA',
-					consumerName: 'Consumer'
+					consumerName: 'Consumer',
 				});
 				await sendEvent(event4);
 
 				await trigger();
-				await new Promise(resolve => setTimeout(resolve, 100));
+				await new Promise((resolve) => setTimeout(resolve, 100));
 
 				expect(slackCalls.length).toBe(0);
 
@@ -437,7 +438,7 @@ Pact publications: 1`;
 				const event5 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123', // Same version
 					providerName: 'ServiceA',
-					consumerName: 'Consumer'
+					consumerName: 'Consumer',
 				});
 				await sendEvent(event5);
 
@@ -447,27 +448,27 @@ Pact publications: 1`;
 				const event6 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123', // Same version
 					providerName: 'ServiceA',
-					consumerName: 'Consumer'
+					consumerName: 'Consumer',
 				});
 				await sendEvent(event6);
 
 				await trigger();
-				await new Promise(resolve => setTimeout(resolve, 100));
+				await new Promise((resolve) => setTimeout(resolve, 100));
 
 				expect(slackCalls.length).toBe(2); // first event is published here
 
 				// console.log('Slack calls:', slackCalls.length, slackCalls.map(call => call.text));
 
-				const summaryMessages = slackCalls.filter(call => call.text?.startsWith('*'));
+				const summaryMessages = slackCalls.filter((call) => call.text?.startsWith('*'));
 				expect(summaryMessages.length).toBe(1);
 
 				// Each summary should show 1 verification (not consolidated)
-				summaryMessages.forEach(summary => {
+				summaryMessages.forEach((summary) => {
 					expect(summary.text).toContain('Pact verifications: ✅2');
 					expect(summary.text).toContain('ServiceA');
 				});
 
-				const threadMessages = slackCalls.filter(call => !call.text?.startsWith('*'));
+				const threadMessages = slackCalls.filter((call) => !call.text?.startsWith('*'));
 
 				// console.log('Thread messages:', threadMessages);
 				expect(threadMessages.length).toBe(1);
@@ -494,7 +495,7 @@ Pact publications: 1`;
 				const event0 = makeProviderVerificationPayload({
 					providerVersionNumber: 'otherVersion789',
 					providerName: 'ServiceA',
-					consumerName: 'Consumer1'
+					consumerName: 'Consumer1',
 				});
 				await sendEvent(event0);
 
@@ -502,7 +503,7 @@ Pact publications: 1`;
 				const event1 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123',
 					providerName: 'ServiceA',
-					consumerName: 'Consumer1'
+					consumerName: 'Consumer1',
 				});
 				await sendEvent(event1);
 
@@ -512,7 +513,7 @@ Pact publications: 1`;
 				const event2 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123',
 					providerName: 'ServiceA',
-					consumerName: 'Consumer2'
+					consumerName: 'Consumer2',
 				});
 				await sendEvent(event2);
 
@@ -521,7 +522,7 @@ Pact publications: 1`;
 				await trigger();
 
 				// Wait for processing to complete
-				await new Promise(resolve => setTimeout(resolve, 100));
+				await new Promise((resolve) => setTimeout(resolve, 100));
 
 				// Verify NO Slack message was sent with recent provider version as the event is too recent
 				expect(slackCalls.length).toBe(2);
@@ -542,7 +543,7 @@ Pact publications: 1`;
 				const event1 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123',
 					providerName: 'ServiceA',
-					consumerName: 'Consumer1'
+					consumerName: 'Consumer1',
 				});
 				await sendEvent(event1);
 
@@ -552,7 +553,7 @@ Pact publications: 1`;
 				const event2 = makeProviderVerificationPayload({
 					providerVersionNumber: 'version123',
 					providerName: 'ServiceA',
-					consumerName: 'Consumer2'
+					consumerName: 'Consumer2',
 				});
 				await sendEvent(event2);
 
@@ -561,7 +562,7 @@ Pact publications: 1`;
 				await trigger();
 
 				// Wait for processing to complete
-				await new Promise(resolve => setTimeout(resolve, 100));
+				await new Promise((resolve) => setTimeout(resolve, 100));
 
 				// Verify NO Slack message was sent as the event is too recent
 				expect(slackCalls.length).toBe(2);
@@ -573,14 +574,14 @@ Pact publications: 1`;
 
 	describe('Summary message grouping', () => {
 		it('should group summary messages by pacticipant version number', async () => {
-			const events: (ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload)[] = [
+			const events: PactWebhookPayload[] = [
 				makeProviderVerificationPayload({
 					providerName: 'ServiceA',
 					consumerName: 'ClientX',
 					consumerVersionBranch: 'main',
 					providerVersionBranch: 'main',
 					consumerVersionNumber: 'version1',
-					providerVersionNumber: 'A1providerVersion'
+					providerVersionNumber: 'A1providerVersion',
 				}),
 				makeProviderVerificationPayload({
 					providerName: 'ServiceA',
@@ -588,7 +589,7 @@ Pact publications: 1`;
 					consumerVersionBranch: 'develop',
 					providerVersionBranch: 'main',
 					consumerVersionNumber: 'version2',
-					providerVersionNumber: 'A1providerVersion'
+					providerVersionNumber: 'A1providerVersion',
 				}),
 				makeProviderVerificationPayload({
 					providerName: 'ServiceA',
@@ -596,7 +597,7 @@ Pact publications: 1`;
 					consumerVersionBranch: 'main',
 					providerVersionBranch: 'main',
 					consumerVersionNumber: 'version3',
-					providerVersionNumber: 'A2providerVersion'
+					providerVersionNumber: 'A2providerVersion',
 				}),
 				makeContractPublicationPayload({
 					providerName: 'ServiceB',
@@ -604,8 +605,8 @@ Pact publications: 1`;
 					consumerVersionBranch: 'main',
 					providerVersionBranch: 'main',
 					consumerVersionNumber: 'A1providerVersion',
-					providerVersionNumber: 'A2providerVersion'
-				})
+					providerVersionNumber: 'A2providerVersion',
+				}),
 			];
 
 			const currentMockTime = 1000000000000; // Fixed timestamp
@@ -624,21 +625,21 @@ Pact publications: 1`;
 			expect(triggerResponse.status).toBe(200);
 
 			// Wait for processing to complete
-			await new Promise(resolve => setTimeout(resolve, 100));
+			await new Promise((resolve) => setTimeout(resolve, 100));
 
 			// console.log('Slack calls:', slackCalls.length, slackCalls.map(call => call.text));
 			// Verify Slack summary messages
-			const summaryMessages = slackCalls.filter(call => call.text?.startsWith('*'));
+			const summaryMessages = slackCalls.filter((call) => call.text?.startsWith('*'));
 			expect(summaryMessages.length).toBe(2); // Two summaries expected
 
 			// first summary for ServiceA version A1providerVersion
-			const summary1 = summaryMessages.find(msg => msg.text?.includes('A1providerVersion'));
+			const summary1 = summaryMessages.find((msg) => msg.text?.includes('A1providerVersion'));
 			expect(summary1).toBeDefined();
 			expect(summary1?.text).toContain('Pact verifications: ✅2');
 			expect(summary1?.text).toContain('Pact publications: 1');
 
 			// second summary for ServiceA version A2providerVersion
-			const summary2 = summaryMessages.find(msg => msg.text?.includes('A2providerVersion'));
+			const summary2 = summaryMessages.find((msg) => msg.text?.includes('A2providerVersion'));
 			expect(summary2).toBeDefined();
 			expect(summary2?.text).toContain('Pact verifications: ✅1');
 		});
@@ -698,15 +699,14 @@ async function debug() {
 	return await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}`);
 }
 
-async function sendEvent(event?: ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload) {
+async function sendEvent(event?: PactWebhookPayload) {
 	return await SELF.fetch(`https://example.com?key=${env.DEBUG_KEY}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(event ?? makeProviderVerificationPayload())
+		body: JSON.stringify(event ?? makeProviderVerificationPayload()),
 	});
 }
 
 async function trigger() {
 	return await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
 }
-

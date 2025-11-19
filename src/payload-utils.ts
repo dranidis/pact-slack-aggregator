@@ -1,5 +1,5 @@
-import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from "./constants";
-import type { BasePactWebhookPayload, PactWebhookPayload, PactEventData, ProviderVerificationPublishedPayload, ContractRequiringVerificationPublishedPayload } from "./types";
+import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from './constants';
+import type { BasePactWebhookPayload, PactWebhookPayload, PactEventData } from './types';
 
 export function getEventDataFromPayload(rawPayload: PactWebhookPayload): PactEventData {
 	return {
@@ -9,11 +9,9 @@ export function getEventDataFromPayload(rawPayload: PactWebhookPayload): PactEve
 	} as PactEventData;
 }
 
-export function getPactVersionFromPayload(pub: ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload) {
+export function getPactVersionFromPayload(pub: PactWebhookPayload) {
 	// Pick source URL based on event type
-	const sourceUrl = pub.eventType === PROVIDER_VERIFICATION_PUBLISHED
-		? pub.verificationResultUrl
-		: pub.pactUrl;
+	const sourceUrl = pub.eventType === PROVIDER_VERIFICATION_PUBLISHED ? pub.verificationResultUrl : pub.pactUrl;
 
 	// Extract the segment after /pact-version/ up to the next slash (if any)
 	const match = /\/pact-version\/([^/]+)/.exec(sourceUrl);
@@ -44,4 +42,3 @@ function getPacticipantVersionNumber(payload: BasePactWebhookPayload): string {
 			return payload.consumerVersionNumber;
 	}
 }
-

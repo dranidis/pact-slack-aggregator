@@ -1,4 +1,4 @@
-import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from "./constants";
+import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from './constants';
 // ...existing code...
 
 export interface BasePactWebhookPayload {
@@ -54,7 +54,7 @@ export interface PublicationThreadInfo {
 	ts: string; // root message timestamp
 	channelId?: string; // Slack channel Id
 	// Store the original webhook payload that created the root message so we can derive summary text later
-	payload?: ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload;
+	payload?: PactWebhookPayload;
 	// Legacy field kept for backward compatibility (existing stored entries before refactor)
 	summary?: string;
 }
@@ -63,10 +63,13 @@ export interface DebugInfo {
 	currentTime: string;
 	lastEventTime: string;
 	lastProcessTime: string;
-	eventBuckets: Record<string, {
-		count: number;
-		events: StoredPactEventData[];
-	}>;
+	eventBuckets: Record<
+		string,
+		{
+			count: number;
+			events: StoredPactEventData[];
+		}
+	>;
 	totalEvents: number;
 	totalProcessedEvents: number;
 	lastProcessedCount: number;
