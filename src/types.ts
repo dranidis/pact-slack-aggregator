@@ -104,3 +104,18 @@ export interface SlackPostMessageResponse {
 	thread_ts?: string;
 	text?: string;
 }
+
+// chat.delete request/response (similar shape, but no text field in request)
+export interface SlackDeleteMessageRequest {
+	channel: string;
+	ts: string;
+}
+
+export interface SlackDeleteMessageResponse {
+	ok: boolean;
+	error?: string;
+	needed?: string;
+	provided?: string;
+	channel?: string;
+	ts?: string;
+}

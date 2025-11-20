@@ -1,4 +1,4 @@
-import type { SlackPostMessageRequest, SlackPostMessageResponse, SlackUpdateMessageRequest } from './types';
+import type { SlackDeleteMessageRequest, SlackDeleteMessageResponse, SlackPostMessageRequest, SlackPostMessageResponse, SlackUpdateMessageRequest } from './types';
 
 // Minimal environment interface for Slack operations
 export interface SlackEnv {
@@ -72,3 +72,41 @@ export async function slackUpdate(slackEnv: SlackEnv, ts: string, newText: strin
 	return json;
 }
 
+export async function slackDelete(slackEnv: SlackEnv, ts: string): Promise<SlackDeleteMessageResponse> {
+	const body: SlackDeleteMessageRequest = { channel: slackEnv.SLACK_CHANNEL, ts };
+	const res = await fetch('https://slack.com/api/chat.delete', {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(body)
+	});
+	const json: SlackDeleteMessageResponse = await res.json();
+	if (json.ok) {
+		console.log('🗑️ Slack message deleted successfully', { ts: body.ts, channel: body.channel });
+	} else {
+		console.error('❌ Slack API Error (delete):', { error: json.error, channel: body.channel, ts: body.ts });
+	}
+	return json;
+}
+
+export async function slackFetchChannelMessages(slackEnv: SlackEnv, limit = 100): Promise<SlackPostMessageResponse> {
+	const url = new URL('https://slack.com/api/conversations.history');
+	url.searchParams.append('channel', slackEnv.SLACK_CHANNEL);
+	url.searchParams.append('limit', limit.toString());
+
+	const res = await fetch(url.toString(), {
+		method: 'GET',
+		headers: {
+			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`
+		}
+	});
+	const json: SlackPostMessageResponse = await res.json();
+	if (!json.ok) {
+		console.error('❌ Slack API Error (fetch messages):', { error: json.error, needed: json.needed, provided: json.provided, channel: slackEnv.SLACK_CHANNEL });
+	} else {
+		console.log('✅ Slack channel messages fetched successfully', { channel: slackEnv.SLACK_CHANNEL });
+	}
+	return json;
+}

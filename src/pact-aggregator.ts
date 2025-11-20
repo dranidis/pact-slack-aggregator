@@ -350,6 +350,7 @@ export class PactAggregator extends DurableObject<Env> {
 	private createBucketKey(minute: string) {
 		return `events:${minute}`;
 	}
+
 	private getMinuteFromBucketKey(bucketKey: string) {
 		return parseInt(bucketKey.split(':')[1]);
 	}

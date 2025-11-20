@@ -13,16 +13,18 @@ export { PactAggregator } from './pact-aggregator';
 export default {
 
 	async fetch(request: Request, env: Env) {
+		const aggregatorStub = getPactAggregatorStub(env);
+
 		const url = new URL(request.url);
 
 		// Debug endpoint
 		if (url.pathname === "/debug" && url.searchParams.get("key") === env.DEBUG_KEY) {
 			if (url.searchParams.get("clear") === "true") {
-				await getPactAggregatorStub(env).clearAll();
+				await aggregatorStub.clearAll();
 				return new Response("State cleared", { status: 200 });
 			}
 
-			const debugData: DebugInfo = await getPactAggregatorStub(env).getDebugInfo();
+			const debugData: DebugInfo = await aggregatorStub.getDebugInfo();
 			return new Response(JSON.stringify(debugData, null, 2), {
 				headers: { "Content-Type": "application/json" }
 			});
@@ -50,7 +52,7 @@ export default {
 			const rawPayload: PactWebhookPayload = await request.json();
 			const eventData: PactEventData = getEventDataFromPayload(rawPayload);
 
-			await getPactAggregatorStub(env).addEvent(eventData);
+			await aggregatorStub.addEvent(eventData);
 
 			// Also send to provider-specific channel
 			await postToProvidersChannel(rawPayload, env);
