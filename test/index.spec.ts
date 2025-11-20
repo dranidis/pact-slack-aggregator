@@ -2,7 +2,13 @@ import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloud
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import worker from '../src/index';
 import { makeProviderVerificationPayload, makeContractPublicationPayload, expectTimestampToBeRecent } from './test-utilities';
-import { DebugInfo, PactWebhookPayload, ProviderVerificationPublishedPayload } from '../src/types';
+import {
+	DebugInfo,
+	PactWebhookPayload,
+	ProviderVerificationPublishedPayload,
+	SlackPostMessageRequest,
+	SlackPostMessageResponse,
+} from '../src/types';
 import { mockTime, resetTime } from '../src/time-utils';
 
 interface SlackCallMock {
@@ -40,7 +46,12 @@ describe('Pact Slack Aggregator Worker', () => {
 						slackCalls.push(payload);
 					}
 					return Promise.resolve({
-						json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
+						json: (): Promise<SlackPostMessageResponse> =>
+							Promise.resolve({
+								ok: true,
+								channel: 'CHANNEL_ID',
+								ts: '1234567890.123',
+							}),
 						ok: true,
 					});
 				}
@@ -692,6 +703,136 @@ Pact publications: 1`;
 			const clearResponse = await SELF.fetch('https://example.com/debug?clear=true');
 			expect(clearResponse.status).toBe(405); // No debug key, so it won't match debug endpoint
 		});
+	});
+});
+
+describe('Provider channel messages', () => {
+	const slackCalls: SlackPostMessageRequest[] = [];
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+
+		// Mock fetch for Slack API calls
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
+				ok: true,
+			})
+		);
+
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockImplementation((url: string, options: { body: string }) => {
+				if (url.includes('slack.com/api/chat.postMessage')) {
+					// console.debug(options.body);
+					const payload = JSON.parse(options.body) as SlackPostMessageRequest;
+					slackCalls.push(payload);
+					return Promise.resolve({
+						json: (): Promise<SlackPostMessageResponse> =>
+							Promise.resolve({
+								ok: true,
+								channel: 'CHANNEL_ID',
+								ts: '1234567890.123',
+							}),
+						ok: true,
+					});
+				}
+				return Promise.resolve({ ok: true });
+			})
+		);
+	});
+
+	afterEach(() => {
+		vi.resetAllMocks();
+		slackCalls.length = 0; // Clear captured Slack calls
+	});
+
+	it('should post a publication summary to the provider-specific channel when a publication happens', async () => {
+		// Arrange: create a contract publication payload with distinct provider
+		const publicationPayload = makeContractPublicationPayload({
+			providerName: 'ProviderChannelService',
+			consumerName: 'ConsumerChannelClient',
+			consumerVersionNumber: '10.20.30',
+			providerVersionNumber: '99.88.77',
+		});
+
+		// Act: send the publication event
+		const response: Response = await sendEvent(publicationPayload);
+		expect(response.status).toBe(200);
+
+		const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+		const calls = fetchMock.mock.calls;
+
+		expect(calls.length).toBe(1);
+		const call = calls[0] as { body: string }[];
+		expect(call[0]).toContain('slack.com/api/chat.postMessage');
+		expect(call[1]?.body).toBeDefined();
+		const body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		expect(body.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
+
+		const debugResponse = await debug();
+		expect(debugResponse.status).toBe(200);
+
+		const debugData: DebugInfo = await debugResponse.json();
+
+		const expectedPublicationThreads = {
+			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
+				ts: '1234567890.123',
+				channelId: 'CHANNEL_ID',
+				payload: publicationPayload,
+			},
+		};
+
+		expect(debugData.publicationThreads).toStrictEqual(expectedPublicationThreads);
+	});
+
+	it('should post a publication summary and a verification thread reply to the provider-specific channel when a verification happens with no previous publication', async () => {
+		// Arrange: create a contract publication payload with distinct provider
+		const publicationPayload = makeProviderVerificationPayload({
+			providerName: 'ProviderChannelService',
+			consumerName: 'ConsumerChannelClient',
+			consumerVersionNumber: '10.20.30',
+			providerVersionNumber: '99.88.77',
+		});
+
+		// Act: send the publication event
+		const response: Response = await sendEvent(publicationPayload);
+		expect(response.status).toBe(200);
+
+		const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+		const calls = fetchMock.mock.calls;
+
+		expect(calls.length).toBe(2);
+
+		const call = calls[0] as { body: string }[];
+		expect(call[0]).toContain('slack.com/api/chat.postMessage');
+		expect(call[1]?.body).toBeDefined();
+		const body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		expect(body.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
+
+		const call2 = calls[1] as { body: string }[];
+		expect(call2[0]).toContain('slack.com/api/chat.postMessage');
+		expect(call2[1]?.body).toBeDefined();
+		const body2 = JSON.parse(call2[1].body) as SlackPostMessageResponse;
+		expect(body2.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
+
+		expect(body2.thread_ts).toBe('1234567890.123');
+
+		const debugResponse = await debug();
+		expect(debugResponse.status).toBe(200);
+
+		const debugData: DebugInfo = await debugResponse.json();
+
+		const expectedPublicationThreads = {
+			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
+				ts: '1234567890.123',
+				channelId: 'CHANNEL_ID',
+				payload: publicationPayload,
+			},
+		};
+
+		expect(debugData.publicationThreads).toStrictEqual(expectedPublicationThreads);
 	});
 });
 

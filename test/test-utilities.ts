@@ -12,11 +12,7 @@ let auto_id = 0;
  * @param baseTime - The base time to compare against (defaults to current time)
  * @param toleranceMs - The tolerance in milliseconds (defaults to 100ms)
  */
-export function expectTimestampToBeRecent(
-	timestampString: string,
-	baseTime?: number,
-	toleranceMs = 100
-): void {
+export function expectTimestampToBeRecent(timestampString: string, baseTime?: number, toleranceMs = 100): void {
 	const referenceTime = baseTime ?? now();
 	const timestamp = Date.parse(timestampString);
 	expect(timestamp).toBeGreaterThanOrEqual(referenceTime);
@@ -48,14 +44,18 @@ export function makeContractPublicationEventData(overrides: Partial<ContractRequ
 /**
  * Factory for raw ProviderVerificationPublishedPayload with overrides (for webhook testing)
  */
-export function makeProviderVerificationPayload(overrides: Partial<ProviderVerificationPublishedPayload> = {}): ProviderVerificationPublishedPayload {
+export function makeProviderVerificationPayload(
+	overrides: Partial<ProviderVerificationPublishedPayload> = {}
+): ProviderVerificationPublishedPayload {
 	return { ...createProviderVerificationPayload(), ...overrides };
 }
 
 /**
  * Factory for raw ContractRequiringVerificationPublishedPayload with overrides (for webhook testing)
  */
-export function makeContractPublicationPayload(overrides: Partial<ContractRequiringVerificationPublishedPayload> = {}): ContractRequiringVerificationPublishedPayload {
+export function makeContractPublicationPayload(
+	overrides: Partial<ContractRequiringVerificationPublishedPayload> = {}
+): ContractRequiringVerificationPublishedPayload {
 	return { ...createContractPublicationPayload(), ...overrides };
 }
 
@@ -64,7 +64,7 @@ function createContractPublicationPayload(): ContractRequiringVerificationPublis
 		eventType: CONTRACT_REQUIRING_VERIFICATION_PUBLISHED,
 		providerName: 'TestProvider',
 		consumerName: 'TestConsumer',
-		pactUrl: 'https://example.com/pact',
+		pactUrl: 'https://example.com/pact-version/PACT-VERSION',
 		consumerVersionBranch: 'main',
 		providerVersionBranch: 'develop',
 		consumerVersionNumber: '1.0.0',
@@ -80,12 +80,10 @@ function createProviderVerificationPayload(): ProviderVerificationPublishedPaylo
 		providerName: 'TestProvider',
 		consumerName: 'TestConsumer',
 		githubVerificationStatus: 'success',
-		verificationResultUrl: `https://example.com/verification-results/${auto_id}`,
+		verificationResultUrl: `https://example.com/pact-version/PACT-VERSION/verification-results/${auto_id}`,
 		consumerVersionBranch: 'main',
 		providerVersionBranch: 'develop',
 		consumerVersionNumber: '1.0.0',
 		providerVersionNumber: '2.0.0',
 	};
 }
-
-

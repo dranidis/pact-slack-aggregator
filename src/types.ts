@@ -101,4 +101,5 @@ export interface SlackPostMessageResponse {
 	error?: string;
 	needed?: string;
 	provided?: string;
+	thread_ts?: string;
 }

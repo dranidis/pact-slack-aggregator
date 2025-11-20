@@ -1,11 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { mockTime, now } from '../src/time-utils';
-import { expectTimestampToBeRecent, createUniqueTestId, makeProviderVerificationEventData, makeContractPublicationEventData, makeContractPublicationPayload, makeProviderVerificationPayload } from './test-utilities';
+import {
+	expectTimestampToBeRecent,
+	createUniqueTestId,
+	makeProviderVerificationEventData,
+	makeContractPublicationEventData,
+	makeContractPublicationPayload,
+	makeProviderVerificationPayload,
+} from './test-utilities';
 import { PactAggregator } from '../src';
 
 describe('PactAggregator', () => {
-	let aggregator: DurableObjectStub<PactAggregator>
+	let aggregator: DurableObjectStub<PactAggregator>;
 
 	beforeEach(() => {
 		// Use a unique ID for each test to avoid state persistence
@@ -123,7 +130,7 @@ describe('PactAggregator', () => {
 			expect(result).toHaveLength(1);
 			expect(result[0]).toMatchObject({
 				pacticipant: 'PastProvider',
-				pacticipantVersionNumber: '1.0.0'
+				pacticipantVersionNumber: '1.0.0',
 			});
 
 			// Verify the past bucket was removed
@@ -307,7 +314,7 @@ describe('PactAggregator', () => {
 			expect(result[0]).toMatchObject({
 				pacticipant: 'OldProvider',
 				pacticipantVersionNumber: '3.0.0',
-				ts: oldTime
+				ts: oldTime,
 			});
 
 			const debugData = await aggregator.getDebugInfo();
@@ -360,16 +367,11 @@ describe('PactAggregator', () => {
 			});
 
 			// Add a publication event
-			await aggregator.setPublicationThreadTs(
-				pub,
-				`${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`,
-				'thread123',
-			);
+			await aggregator.setPublicationThreadTs(pub, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`, 'thread123');
 
 			// Get debug info
 			const debugInfo = await aggregator.getDebugInfo();
 
-			console.debug("Debug Info Publication Threads:", debugInfo.publicationThreads);
 			expect(debugInfo.publicationThreads).toBeDefined();
 			expect(debugInfo.publicationThreads[`API|Engine|branchA|pactver123|${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`]).toBeDefined();
 
