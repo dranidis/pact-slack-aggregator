@@ -14,11 +14,11 @@ export interface MessageEnv {
 }
 
 
-export function getPublicationSummaryFromOriginalPayload(originalPayload: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, env: MessageEnv): string {
-	if (originalPayload.eventType === 'contract_requiring_verification_published') {
-		return createPublicationSummaryTextForProviderChannel(originalPayload, env);
+export function getPublicationSummaryForPayload(payload: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, env: MessageEnv): string {
+	if (payload.eventType === 'contract_requiring_verification_published') {
+		return createPublicationSummaryTextForProviderChannel(payload, env);
 	}
-	return createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(originalPayload, env);
+	return createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(payload, env);
 }
 
 export function createSummaryAndDetailsMessages(
@@ -105,7 +105,7 @@ export function createVerificationThreadDetailsForProviderChannel(e: ProviderVer
 }
 
 
-export function createPublicationSummaryTextForProviderChannel(e: ContractRequiringVerificationPublishedPayload, messageEnv: MessageEnv) {
+function createPublicationSummaryTextForProviderChannel(e: ContractRequiringVerificationPublishedPayload, messageEnv: MessageEnv) {
 	// provider version info only relevant if descriptions exist since these are
 	// separate events for each version
 	const consumerVersionNumber = e.consumerVersionNumber;
@@ -117,7 +117,7 @@ export function createPublicationSummaryTextForProviderChannel(e: ContractRequir
 	return `Consumer *${e.consumerName}* ${branchLink}${githubLink} published new/updated <${e.pactUrl}|contract>. <${diffUrl}|Diff> with previous distinct version of this pact.`;
 }
 
-export function createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(e: ProviderVerificationPublishedPayload, messageEnv: MessageEnv) {
+function createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(e: ProviderVerificationPublishedPayload, messageEnv: MessageEnv) {
 	// provider version info only relevant if descriptions exist since these are
 	// separate events for each version
 	const consumerVersionNumber = e.consumerVersionNumber;

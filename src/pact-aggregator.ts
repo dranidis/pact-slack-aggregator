@@ -176,7 +176,7 @@ export class PactAggregator extends DurableObject<Env> {
 		return threads[key]?.ts;
 	}
 
-	async getPublicationSummaryText(
+	async getPublicationPayload(
 		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
 		channel: string
 	): Promise<ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload | undefined> {

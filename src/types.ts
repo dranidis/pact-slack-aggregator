@@ -102,4 +102,5 @@ export interface SlackPostMessageResponse {
 	needed?: string;
 	provided?: string;
 	thread_ts?: string;
+	text?: string;
 }

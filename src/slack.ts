@@ -19,7 +19,7 @@ export async function postPacticipantEventsToSlack(
 export async function slackPost(slackEnv: SlackEnv, text: string, threadTs?: string): Promise<SlackPostMessageResponse> {
 	const body: SlackPostMessageRequest = {
 		text,
-		channel: slackEnv.SLACK_CHANNEL,
+		channel: slackEnv.SLACK_CHANNEL, // postMessage works with channel name also
 	};
 
 	if (threadTs) body.thread_ts = threadTs;
@@ -51,7 +51,7 @@ export async function slackPost(slackEnv: SlackEnv, text: string, threadTs?: str
 export async function slackUpdate(slackEnv: SlackEnv, ts: string, newText: string): Promise<SlackPostMessageResponse> {
 	const body: SlackUpdateMessageRequest = {
 		text: newText,
-		channel: slackEnv.SLACK_CHANNEL, // expect channel ID here
+		channel: slackEnv.SLACK_CHANNEL, // expect channel ID here (channel name won't work for updates)
 		ts
 	};
 

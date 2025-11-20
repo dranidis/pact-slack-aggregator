@@ -724,7 +724,8 @@ describe('Provider channel messages', () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockImplementation((url: string, options: { body: string }) => {
-				if (url.includes('slack.com/api/chat.postMessage')) {
+				// if (url.includes('slack.com/api/chat.postMessage')) {
+				if (url.includes('slack.com/api')) {
 					// console.debug(options.body);
 					const payload = JSON.parse(options.body) as SlackPostMessageRequest;
 					slackCalls.push(payload);
@@ -852,8 +853,8 @@ describe('Provider channel messages', () => {
 		mockTime(() => publicationMockTime);
 		await sendEvent(publicationPayload);
 
-		const debugResponse0 = await debug();
-		console.debug('Debug response after verification:', await debugResponse0.text());
+		// const debugResponse0 = await debug();
+		// console.debug('Debug response after verification:', await debugResponse0.text());
 
 		// Act: send the verification event
 		const verificationPayload = makeProviderVerificationPayload({
@@ -879,6 +880,92 @@ describe('Provider channel messages', () => {
 		const body = JSON.parse(call[1].body) as SlackPostMessageResponse;
 		expect(body.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
 		expect(body.thread_ts).toBe(publicationMockTime.toString());
+
+		const debugResponse = await debug();
+		// console.debug('Debug response after verification:', await debugResponse.text());
+		expect(debugResponse.status).toBe(200);
+
+		const debugData: DebugInfo = await debugResponse.json();
+
+		const expectedPublicationThreads = {
+			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
+				ts: publicationMockTime.toString(),
+				channelId: 'CHANNEL_ID',
+				payload: publicationPayload,
+			},
+		};
+
+		expect(debugData.publicationThreads).toStrictEqual(expectedPublicationThreads);
+	});
+
+	it('should update the status of the publication of the contract on a master verification', async () => {
+		const publicationPayload = makeContractPublicationPayload({
+			providerName: 'ProviderChannelService',
+			consumerName: 'ConsumerChannelClient',
+			consumerVersionNumber: '10.20.30',
+			providerVersionNumber: '99.88.77',
+		});
+		const publicationMockTime = 1000000000000; // Fixed timestamp
+		mockTime(() => publicationMockTime);
+		await sendEvent(publicationPayload);
+
+		// const debugResponse0 = await debug();
+		// console.debug('Debug response after verification:', await debugResponse0.text());
+
+		// Act: send the verification event
+		const verificationPayload = makeProviderVerificationPayload({
+			providerName: 'ProviderChannelService',
+			consumerName: 'ConsumerChannelClient',
+			consumerVersionNumber: '10.20.30',
+			providerVersionNumber: 'newprodver',
+			providerVersionBranch: 'master',
+		});
+		const verificationMockTime = publicationMockTime + 1000;
+		mockTime(() => verificationMockTime);
+		await sendEvent(verificationPayload);
+
+		// Act: send the verification event
+		const verificationPayload2 = makeProviderVerificationPayload({
+			providerName: 'ProviderChannelService',
+			consumerName: 'ConsumerChannelClient',
+			consumerVersionNumber: '10.20.30',
+			providerVersionNumber: 'newprodver',
+			providerVersionBranch: 'master',
+			githubVerificationStatus: 'failure'
+		});
+		const verificationMockTime2 = publicationMockTime + 2000;
+		mockTime(() => verificationMockTime2);
+		await sendEvent(verificationPayload2);
+
+		const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+		const calls = fetchMock.mock.calls;
+
+		// console.debug(calls)
+		expect(calls.length).toBe(5);
+
+		let call = calls[1] as { body: string }[];
+		expect(call[0]).toContain('slack.com/api/chat.update');
+		expect(call[1]?.body).toBeDefined()
+		let body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		expect(body.channel).toBe('CHANNEL_ID');
+		expect(body.ts).toBe(publicationMockTime.toString());
+		expect(body.text).toContain('Verification on *master*: ✅');
+		expect(body.text).toContain(verificationPayload.verificationResultUrl);
+
+		call = calls[2] as { body: string }[];
+		expect(call[0]).toContain('slack.com/api/chat.postMessage');
+
+		call = calls[3] as { body: string }[];
+		expect(call[0]).toContain('slack.com/api/chat.update');
+		expect(call[1]?.body).toBeDefined()
+		body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		expect(body.channel).toBe('CHANNEL_ID');
+		expect(body.ts).toBe(publicationMockTime.toString());
+		expect(body.text).toContain('Verification on *master*: 😢');
+		expect(body.text).toContain(verificationPayload2.verificationResultUrl);
+
+		call = calls[4] as { body: string }[];
+		expect(call[0]).toContain('slack.com/api/chat.postMessage');
 
 		const debugResponse = await debug();
 		// console.debug('Debug response after verification:', await debugResponse.text());

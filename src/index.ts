@@ -6,7 +6,7 @@ import type {
 	DebugInfo,
 } from './types';
 import { getEventDataFromPayload, getProviderSlackChannel } from './payload-utils';
-import { createPublicationSummaryTextForProviderChannel, createPublicationSummaryTextForProviderChannelForVerificationWithoutThread, createSummaryAndDetailsMessages, createVerificationThreadDetailsForProviderChannel, appendVerificationStatusToProviderPublicationSummary, getPublicationSummaryFromOriginalPayload } from "./messages";
+import { createSummaryAndDetailsMessages, createVerificationThreadDetailsForProviderChannel, appendVerificationStatusToProviderPublicationSummary, getPublicationSummaryForPayload } from "./messages";
 import { postPacticipantEventsToSlack, slackPost, slackUpdate } from "./slack";
 export { PactAggregator } from './pact-aggregator';
 
@@ -76,7 +76,7 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 
 	if (rawPayload.eventType === "contract_requiring_verification_published") {
 		const pub = rawPayload;
-		const summaryText = createPublicationSummaryTextForProviderChannel(pub, env);
+		const summaryText = getPublicationSummaryForPayload(pub, env);
 
 		// Post to Slack and get thread timestamp
 		const summaryResp = await slackPost({
@@ -100,7 +100,7 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 		console.log(`Posting verification result to channel ${providerSlackChannel} in thread ${threadTs}`);
 
 		if (!threadTs) {
-			const summaryText = createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(ver, env);
+			const summaryText = getPublicationSummaryForPayload(ver, env);
 			const summaryResp = await slackPost({
 				SLACK_CHANNEL: providerSlackChannel,
 				SLACK_TOKEN: env.SLACK_TOKEN
@@ -116,39 +116,25 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 
 		// If provider branch is master, update original summary instead of posting thread detail
 		if (ver.providerVersionBranch === 'master') {
-			const originalPayload = (await aggregatorStub.getPublicationSummaryText(ver, providerSlackChannel)) ?? undefined;
-			const originalSummary = originalPayload ? getPublicationSummaryFromOriginalPayload(originalPayload, env) : '';
+			const originalPayload = (await aggregatorStub.getPublicationPayload(ver, providerSlackChannel)) ?? undefined;
+			const originalSummary = originalPayload ? getPublicationSummaryForPayload(originalPayload, env) : '';
 			const updatedSummary = appendVerificationStatusToProviderPublicationSummary(originalSummary || `Verification results for *${ver.consumerName}*`, ver, env);
 			const channelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
 			if (!channelId) {
-				console.error('Missing channel ID for update; falling back to thread reply');
-				const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
-				await slackPost({ SLACK_CHANNEL: providerSlackChannel, SLACK_TOKEN: env.SLACK_TOKEN }, verificationThreadDetail, threadTs);
+				console.error('Missing channel ID for update! ');
 			} else {
 				await slackUpdate({
 					SLACK_CHANNEL: channelId,
 					SLACK_TOKEN: env.SLACK_TOKEN
 				}, threadTs, updatedSummary);
-				// Also add a thread reply with verification detail for visibility
-				const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
-				await slackPost({ SLACK_CHANNEL: providerSlackChannel, SLACK_TOKEN: env.SLACK_TOKEN }, verificationThreadDetail, threadTs);
 			}
-			// Ensure unified thread info preserved (avoid wiping summary/channelId)
-			if (channelId) {
-				await aggregatorStub.setPublicationThreadTs(ver, providerSlackChannel, threadTs, channelId);
-			} else {
-				await aggregatorStub.setPublicationThreadTs(ver, providerSlackChannel, threadTs);
-			}
-		} else {
-			// Normal behavior: post a thread reply with verification detail
-			// const existingChannelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
-			// await aggregatorStub.setPublicationThreadTs(ver, providerSlackChannel, threadTs, existingChannelId);
-			const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
-			await slackPost({
-				SLACK_CHANNEL: providerSlackChannel,
-				SLACK_TOKEN: env.SLACK_TOKEN
-			}, verificationThreadDetail, threadTs);
 		}
+
+		const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
+		await slackPost({
+			SLACK_CHANNEL: providerSlackChannel,
+			SLACK_TOKEN: env.SLACK_TOKEN
+		}, verificationThreadDetail, threadTs);
 	}
 }
 
