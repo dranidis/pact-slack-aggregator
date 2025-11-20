@@ -141,8 +141,8 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 			}
 		} else {
 			// Normal behavior: post a thread reply with verification detail
-			const existingChannelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
-			await aggregatorStub.setPublicationThreadTs(ver, providerSlackChannel, threadTs, existingChannelId);
+			// const existingChannelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
+			// await aggregatorStub.setPublicationThreadTs(ver, providerSlackChannel, threadTs, existingChannelId);
 			const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
 			await slackPost({
 				SLACK_CHANNEL: providerSlackChannel,

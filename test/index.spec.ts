@@ -9,7 +9,7 @@ import {
 	SlackPostMessageRequest,
 	SlackPostMessageResponse,
 } from '../src/types';
-import { mockTime, resetTime } from '../src/time-utils';
+import { mockTime, now, resetTime } from '../src/time-utils';
 
 interface SlackCallMock {
 	text?: string;
@@ -733,7 +733,7 @@ describe('Provider channel messages', () => {
 							Promise.resolve({
 								ok: true,
 								channel: 'CHANNEL_ID',
-								ts: '1234567890.123',
+								ts: now().toString(),
 							}),
 						ok: true,
 					});
@@ -757,6 +757,9 @@ describe('Provider channel messages', () => {
 			providerVersionNumber: '99.88.77',
 		});
 
+		const currentMockTime = 1000000000000; // Fixed timestamp
+		mockTime(() => currentMockTime);
+
 		// Act: send the publication event
 		const response: Response = await sendEvent(publicationPayload);
 		expect(response.status).toBe(200);
@@ -778,7 +781,7 @@ describe('Provider channel messages', () => {
 
 		const expectedPublicationThreads = {
 			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
-				ts: '1234567890.123',
+				ts: currentMockTime.toString(),
 				channelId: 'CHANNEL_ID',
 				payload: publicationPayload,
 			},
@@ -795,6 +798,8 @@ describe('Provider channel messages', () => {
 			consumerVersionNumber: '10.20.30',
 			providerVersionNumber: '99.88.77',
 		});
+		const currentMockTime = 1000000000000; // Fixed timestamp
+		mockTime(() => currentMockTime);
 
 		// Act: send the publication event
 		const response: Response = await sendEvent(publicationPayload);
@@ -817,7 +822,7 @@ describe('Provider channel messages', () => {
 		const body2 = JSON.parse(call2[1].body) as SlackPostMessageResponse;
 		expect(body2.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
 
-		expect(body2.thread_ts).toBe('1234567890.123');
+		expect(body2.thread_ts).toBe(currentMockTime.toString());
 
 		const debugResponse = await debug();
 		expect(debugResponse.status).toBe(200);
@@ -826,7 +831,64 @@ describe('Provider channel messages', () => {
 
 		const expectedPublicationThreads = {
 			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
-				ts: '1234567890.123',
+				ts: currentMockTime.toString(),
+				channelId: 'CHANNEL_ID',
+				payload: publicationPayload,
+			},
+		};
+
+		expect(debugData.publicationThreads).toStrictEqual(expectedPublicationThreads);
+	});
+
+	it('should post a verification in the thread of the publication of the contract', async () => {
+		// Arrange: create a contract publication payload with distinct provider
+		const publicationPayload = makeContractPublicationPayload({
+			providerName: 'ProviderChannelService',
+			consumerName: 'ConsumerChannelClient',
+			consumerVersionNumber: '10.20.30',
+			providerVersionNumber: '99.88.77',
+		});
+		const publicationMockTime = 1000000000000; // Fixed timestamp
+		mockTime(() => publicationMockTime);
+		await sendEvent(publicationPayload);
+
+		const debugResponse0 = await debug();
+		console.debug('Debug response after verification:', await debugResponse0.text());
+
+		// Act: send the verification event
+		const verificationPayload = makeProviderVerificationPayload({
+			providerName: 'ProviderChannelService',
+			consumerName: 'ConsumerChannelClient',
+			consumerVersionNumber: '10.20.30',
+			providerVersionNumber: 'newprodver',
+		});
+		const verificationMockTime = publicationMockTime + 1000;
+		mockTime(() => verificationMockTime);
+		const response: Response = await sendEvent(verificationPayload);
+
+		expect(response.status).toBe(200);
+
+		const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+		const calls = fetchMock.mock.calls;
+
+		expect(calls.length).toBe(2);
+
+		const call = calls[1] as { body: string }[];
+		expect(call[0]).toContain('slack.com/api/chat.postMessage');
+		expect(call[1]?.body).toBeDefined();
+		const body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		expect(body.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
+		expect(body.thread_ts).toBe(publicationMockTime.toString());
+
+		const debugResponse = await debug();
+		// console.debug('Debug response after verification:', await debugResponse.text());
+		expect(debugResponse.status).toBe(200);
+
+		const debugData: DebugInfo = await debugResponse.json();
+
+		const expectedPublicationThreads = {
+			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
+				ts: publicationMockTime.toString(),
 				channelId: 'CHANNEL_ID',
 				payload: publicationPayload,
 			},
