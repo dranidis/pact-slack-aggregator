@@ -13,12 +13,17 @@ export interface MessageEnv {
 	FAILURE_EMOJI: string;
 }
 
-
-export function getPublicationSummaryForPayload(payload: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, env: MessageEnv): string {
-	if (payload.eventType === 'contract_requiring_verification_published') {
-		return createPublicationSummaryTextForProviderChannel(payload, env);
-	}
-	return createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(payload, env);
+export function getPublicationSummaryForPayload(e: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, env: MessageEnv): string {
+	// provider version info only relevant if descriptions exist since these are
+	// separate events for each version
+	const consumerVersionNumber = e.consumerVersionNumber;
+	const consumerVersionBranch = e.consumerVersionBranch;
+	const { branchLink, githubLink } = createGithubLinks(env, e.consumerName, consumerVersionBranch, consumerVersionNumber);
+	const { pactUrl, diffUrl } = createPactAndPactDiffUrl(e);
+	const text = e.eventType === CONTRACT_REQUIRING_VERIFICATION_PUBLISHED
+		? "First published at"
+		: "(Unknown first publication) Found at";
+	return `<${pactUrl}|Contract> by consumer *${e.consumerName}*. ${text} ${branchLink}${githubLink}. <${diffUrl}|Diff> with previous distinct version of this pact.`;
 }
 
 export function createSummaryAndDetailsMessages(
@@ -83,7 +88,7 @@ function createVerificationThreadDetails(e: ProviderVerificationPublishedPayload
 	const { branchLink, githubLink } = createGithubLinks(messageEnv, e.consumerName, e.consumerVersionBranch, e.consumerVersionNumber);
 	const pactUrl = extractPactUrlFromVerificationUrl(e.verificationResultUrl);
 	const pactLink = ` | <${pactUrl}|Pact>`;
-	return `- ${e.githubVerificationStatus === "success" ? messageEnv.SUCCESS_EMOJI : messageEnv.FAILURE_EMOJI} <${e.verificationResultUrl}|Results>${pactLink} *${e.consumerName}* ${branchLink}${githubLink}`;
+	return `- ${getEmoji(messageEnv, e.githubVerificationStatus)} <${e.verificationResultUrl}|Results>${pactLink} *${e.consumerName}* ${branchLink}${githubLink}`;
 }
 
 function createPublicationSummaryText(e: ContractRequiringVerificationPublishedPayload, messageEnv: MessageEnv) {
@@ -101,41 +106,35 @@ function createPublicationSummaryText(e: ContractRequiringVerificationPublishedP
 
 export function createVerificationThreadDetailsForProviderChannel(e: ProviderVerificationPublishedPayload, messageEnv: MessageEnv) {
 	const { branchLink, githubLink } = createGithubLinks(messageEnv, e.providerName, e.providerVersionBranch, e.providerVersionNumber);
-	return `- ${e.githubVerificationStatus === "success" ? messageEnv.SUCCESS_EMOJI : messageEnv.FAILURE_EMOJI} <${e.verificationResultUrl}|Results> *${e.providerName}* ${branchLink}${githubLink}`;
+	const { branchLink: consumerBranchLink, githubLink: consumerGithubLink } = createGithubLinks(messageEnv, e.consumerName, e.consumerVersionBranch, e.consumerVersionNumber);
+	return `- ${getEmoji(messageEnv, e.githubVerificationStatus)} <${e.verificationResultUrl}|Results> *${e.providerName}* ${branchLink}${githubLink}\nVerified ${e.consumerName} ${consumerBranchLink}${consumerGithubLink}`;
 }
 
+function getEmoji(messageEnv: MessageEnv, status: string): string {
+	return status === 'success' ? messageEnv.SUCCESS_EMOJI : messageEnv.FAILURE_EMOJI;
+}
 
-function createPublicationSummaryTextForProviderChannel(e: ContractRequiringVerificationPublishedPayload, messageEnv: MessageEnv) {
-	// provider version info only relevant if descriptions exist since these are
-	// separate events for each version
-	const consumerVersionNumber = e.consumerVersionNumber;
-	const consumerVersionBranch = e.consumerVersionBranch;
-	const { branchLink, githubLink } = createGithubLinks(messageEnv, e.consumerName, consumerVersionBranch, consumerVersionNumber);
+function createPactAndPactDiffUrl(e: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload) {
+
 	const pactBrokerURL = // get the base URL from e.pactUrl
-		e.pactUrl.split('/pacts/')[0];
+		e.eventType === PROVIDER_VERIFICATION_PUBLISHED
+			? e.verificationResultUrl.split('/pacts/')[0]
+			: e.pactUrl.split('/pacts/')[0];
+	const pactUrl = e.eventType === PROVIDER_VERIFICATION_PUBLISHED
+		? `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}`
+		: e.pactUrl;
 	const diffUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}/diff/previous-distinct`;
-	return `Consumer *${e.consumerName}* ${branchLink}${githubLink} published new/updated <${e.pactUrl}|contract>. <${diffUrl}|Diff> with previous distinct version of this pact.`;
-}
-
-function createPublicationSummaryTextForProviderChannelForVerificationWithoutThread(e: ProviderVerificationPublishedPayload, messageEnv: MessageEnv) {
-	// provider version info only relevant if descriptions exist since these are
-	// separate events for each version
-	const consumerVersionNumber = e.consumerVersionNumber;
-	const consumerVersionBranch = e.consumerVersionBranch;
-	const { branchLink, githubLink } = createGithubLinks(messageEnv, e.consumerName, consumerVersionBranch, consumerVersionNumber);
-	const pactBrokerURL = // get the base URL from e.
-		e.verificationResultUrl.split('/pacts/')[0];
-	const diffUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}/diff/previous-distinct`;
-	const pactUrl = `${pactBrokerURL}/pacts/provider/${e.providerName}/consumer/${e.consumerName}/version/${e.consumerVersionNumber}`;
-	return `Consumer *${e.consumerName}* ${branchLink}${githubLink} <${pactUrl}|contract>. <${diffUrl}|Diff> with previous distinct version of this pact.`;
+	return { pactUrl, diffUrl };
 }
 
 // Append verification status line to an existing publication summary message for provider channel
 export function appendVerificationStatusToProviderPublicationSummary(originalSummary: string, ver: ProviderVerificationPublishedPayload, messageEnv: MessageEnv) {
-	const statusEmoji = ver.githubVerificationStatus === 'success' ? messageEnv.SUCCESS_EMOJI : messageEnv.FAILURE_EMOJI;
+	const statusEmoji = getEmoji(messageEnv, ver.githubVerificationStatus);
+	const { branchLink, githubLink } = createGithubLinks(messageEnv, ver.providerName, ver.providerVersionBranch, ver.providerVersionNumber);
+
 	// Keep original summary; add a blank line to separate if not already ending with newline
 	const prefix = originalSummary.endsWith('\n') ? '' : '\n';
-	return `${originalSummary}${prefix}Verification on *${ver.providerVersionBranch}*: ${statusEmoji} <${ver.verificationResultUrl}|Results>`;
+	return `${originalSummary}${prefix}Last verification on (${ver.providerName}) *${branchLink}*${githubLink}: ${statusEmoji} <${ver.verificationResultUrl}|Results>`;
 }
 
 function createCommitLink(messageEnv: MessageEnv, repo: string, commitHash: string): string {

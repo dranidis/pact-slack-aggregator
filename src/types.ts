@@ -52,6 +52,8 @@ export type StoredPactEventData = StoredProviderVerificationEventData | StoredCo
 
 export interface PublicationThreadInfo {
 	ts: string; // root message timestamp
+	createdTs: string; // creation timestamp
+	updatedTs?: string; // latest update message timestamp
 	channelId?: string; // Slack channel Id
 	// Store the original webhook payload that created the root message so we can derive summary text later
 	payload?: PactWebhookPayload;

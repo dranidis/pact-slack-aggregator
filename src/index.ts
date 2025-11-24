@@ -23,6 +23,10 @@ export default {
 				await aggregatorStub.clearAll();
 				return new Response("State cleared", { status: 200 });
 			}
+			if (url.searchParams.get("clearPublicationThreads") === "true") {
+				await aggregatorStub.clearPublicationThreads();
+				return new Response("Publication threads cleared", { status: 200 });
+			}
 
 			const debugData: DebugInfo = await aggregatorStub.getDebugInfo();
 			return new Response(JSON.stringify(debugData, null, 2), {
@@ -76,45 +80,21 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 	const aggregatorStub = getPactAggregatorStub(env);
 	const providerSlackChannel = getProviderSlackChannel(env, rawPayload);
 
-	if (rawPayload.eventType === "contract_requiring_verification_published") {
-		const pub = rawPayload;
-		const summaryText = getPublicationSummaryForPayload(pub, env);
+	let threadTs = await aggregatorStub.getPublicationThreadTs(rawPayload, providerSlackChannel);
 
-		// Post to Slack and get thread timestamp
-		const summaryResp = await slackPost({
-			SLACK_CHANNEL: providerSlackChannel,
-			SLACK_TOKEN: env.SLACK_TOKEN
-		}, summaryText);
+	// a publication event will always have a new pact and the thread will not exist yet
+	// a verification event may or may not have an existing thread for its pact
+	threadTs ??= await publishProviderSummaryToSlack(rawPayload, env);
 
-		if (!summaryResp.ok) {
-			console.error(`Failed to post publication summary to ${providerSlackChannel}:`, summaryResp.error);
-			return;
-		}
-
-		// Store thread timestamp and channel ID along with original payload
-		await aggregatorStub.setPublicationThreadTs(pub, providerSlackChannel, summaryResp.ts!, summaryResp.channel);
+	if (!threadTs) {
+		console.error('Failed to obtain thread timestamp for provider channel post');
+		return;
 	}
 
 	// If this is a verification result, post in the thread
 	if (rawPayload.eventType === "provider_verification_published") {
 		const ver = rawPayload;
-		let threadTs = await aggregatorStub.getPublicationThreadTs(ver, providerSlackChannel);
 		console.log(`Posting verification result to channel ${providerSlackChannel} in thread ${threadTs}`);
-
-		if (!threadTs) {
-			const summaryText = getPublicationSummaryForPayload(ver, env);
-			const summaryResp = await slackPost({
-				SLACK_CHANNEL: providerSlackChannel,
-				SLACK_TOKEN: env.SLACK_TOKEN
-			}, summaryText);
-
-			if (!summaryResp.ok) {
-				console.error(`Failed to post verification summary to ${providerSlackChannel}:`, summaryResp.error);
-				return;
-			}
-			threadTs = summaryResp.ts!;
-			await aggregatorStub.setPublicationThreadTs(ver, providerSlackChannel, threadTs, summaryResp.channel);
-		}
 
 		// If provider branch is master, update original summary instead of posting thread detail
 		if (ver.providerVersionBranch === 'master') {
@@ -137,7 +117,29 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 			SLACK_CHANNEL: providerSlackChannel,
 			SLACK_TOKEN: env.SLACK_TOKEN
 		}, verificationThreadDetail, threadTs);
+
+		// Update the thread's last updated timestamp
+		await aggregatorStub.touchPublicationThreadUpdateTs(ver, providerSlackChannel);
 	}
+}
+
+async function publishProviderSummaryToSlack(rawPayload: PactWebhookPayload, env: Env) {
+	const aggregatorStub = getPactAggregatorStub(env);
+	const providerSlackChannel = getProviderSlackChannel(env, rawPayload);
+
+	const summaryText = getPublicationSummaryForPayload(rawPayload, env);
+	const summaryResp = await slackPost({
+		SLACK_CHANNEL: providerSlackChannel,
+		SLACK_TOKEN: env.SLACK_TOKEN
+	}, summaryText);
+
+	if (!summaryResp.ok) {
+		console.error(`Failed to post verification summary to ${providerSlackChannel}:`, summaryResp.error);
+		return;
+	}
+	const threadTs = summaryResp.ts!;
+	await aggregatorStub.setPublicationThreadTs(rawPayload, providerSlackChannel, threadTs, summaryResp.channel);
+	return threadTs;
 }
 
 function shouldProcessAtCurrentTime(env: Env): boolean {

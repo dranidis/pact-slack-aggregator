@@ -373,7 +373,7 @@ describe('PactAggregator', () => {
 			const debugInfo = await aggregator.getDebugInfo();
 
 			expect(debugInfo.publicationThreads).toBeDefined();
-			expect(debugInfo.publicationThreads[`API|Engine|branchA|pactver123|${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`]).toBeDefined();
+			expect(debugInfo.publicationThreads[`API|Engine|pactver123|${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`]).toBeDefined();
 
 			const ver = makeProviderVerificationPayload({
 				providerName: 'API',

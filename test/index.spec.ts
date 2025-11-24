@@ -6,6 +6,7 @@ import {
 	DebugInfo,
 	PactWebhookPayload,
 	ProviderVerificationPublishedPayload,
+	PublicationThreadInfo,
 	SlackPostMessageRequest,
 	SlackPostMessageResponse,
 } from '../src/types';
@@ -780,15 +781,17 @@ describe('Provider channel messages', () => {
 
 		const debugData: DebugInfo = await debugResponse.json();
 
-		const expectedPublicationThreads = {
-			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
+		const expectedPublicationThreads: Record<string, PublicationThreadInfo> = {
+			'ProviderChannelService|ConsumerChannelClient|PACT-VERSION|#pact-ProviderChannelService': {
 				ts: currentMockTime.toString(),
 				channelId: 'CHANNEL_ID',
 				payload: publicationPayload,
+				updatedTs: currentMockTime.toString(),
+				createdTs: currentMockTime.toString(),
 			},
 		};
 
-		expect(debugData.publicationThreads).toStrictEqual(expectedPublicationThreads);
+		expect(debugData.publicationThreads).toMatchObject(expectedPublicationThreads);
 	});
 
 	it('should post a publication summary and a verification thread reply to the provider-specific channel when a verification happens with no previous publication', async () => {
@@ -830,15 +833,17 @@ describe('Provider channel messages', () => {
 
 		const debugData: DebugInfo = await debugResponse.json();
 
-		const expectedPublicationThreads = {
-			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
+		const expectedPublicationThreads: Record<string, PublicationThreadInfo> = {
+			'ProviderChannelService|ConsumerChannelClient|PACT-VERSION|#pact-ProviderChannelService': {
 				ts: currentMockTime.toString(),
 				channelId: 'CHANNEL_ID',
 				payload: publicationPayload,
+				updatedTs: currentMockTime.toString(),
+				createdTs: currentMockTime.toString(),
 			},
 		};
 
-		expect(debugData.publicationThreads).toStrictEqual(expectedPublicationThreads);
+		expect(debugData.publicationThreads).toMatchObject(expectedPublicationThreads);
 	});
 
 	it('should post a verification in the thread of the publication of the contract', async () => {
@@ -887,15 +892,17 @@ describe('Provider channel messages', () => {
 
 		const debugData: DebugInfo = await debugResponse.json();
 
-		const expectedPublicationThreads = {
-			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
+		const expectedPublicationThreads: Record<string, PublicationThreadInfo> = {
+			'ProviderChannelService|ConsumerChannelClient|PACT-VERSION|#pact-ProviderChannelService': {
 				ts: publicationMockTime.toString(),
 				channelId: 'CHANNEL_ID',
 				payload: publicationPayload,
+				updatedTs: verificationMockTime.toString(),
+				createdTs: publicationMockTime.toString(),
 			},
 		};
 
-		expect(debugData.publicationThreads).toStrictEqual(expectedPublicationThreads);
+		expect(debugData.publicationThreads).toMatchObject(expectedPublicationThreads);
 	});
 
 	it('should update the status of the publication of the contract on a master verification', async () => {
@@ -949,7 +956,9 @@ describe('Provider channel messages', () => {
 		let body = JSON.parse(call[1].body) as SlackPostMessageResponse;
 		expect(body.channel).toBe('CHANNEL_ID');
 		expect(body.ts).toBe(publicationMockTime.toString());
-		expect(body.text).toContain('Verification on *master*: ✅');
+		expect(body.text).toContain('Last verification on');
+		expect(body.text).toContain('✅');
+		expect(body.text).toContain('master');
 		expect(body.text).toContain(verificationPayload.verificationResultUrl);
 
 		call = calls[2] as { body: string }[];
@@ -961,7 +970,9 @@ describe('Provider channel messages', () => {
 		body = JSON.parse(call[1].body) as SlackPostMessageResponse;
 		expect(body.channel).toBe('CHANNEL_ID');
 		expect(body.ts).toBe(publicationMockTime.toString());
-		expect(body.text).toContain('Verification on *master*: 😢');
+		expect(body.text).toContain('Last verification on');
+		expect(body.text).toContain('😢');
+		expect(body.text).toContain('master');
 		expect(body.text).toContain(verificationPayload2.verificationResultUrl);
 
 		call = calls[4] as { body: string }[];
@@ -973,15 +984,44 @@ describe('Provider channel messages', () => {
 
 		const debugData: DebugInfo = await debugResponse.json();
 
-		const expectedPublicationThreads = {
-			'ProviderChannelService|ConsumerChannelClient|main|PACT-VERSION|#pact-ProviderChannelService': {
+		const expectedPublicationThreads: Record<string, PublicationThreadInfo> = {
+			'ProviderChannelService|ConsumerChannelClient|PACT-VERSION|#pact-ProviderChannelService': {
 				ts: publicationMockTime.toString(),
 				channelId: 'CHANNEL_ID',
 				payload: publicationPayload,
+				updatedTs: verificationMockTime2.toString(),
+				createdTs: publicationMockTime.toString(),
 			},
 		};
 
-		expect(debugData.publicationThreads).toStrictEqual(expectedPublicationThreads);
+		expect(debugData.publicationThreads).toMatchObject(expectedPublicationThreads);
+	});
+
+	it('should clear all publication threads on clearPublicationThreads', async () => {
+		// Arrange: create a contract publication payload with distinct provider
+		const publicationPayload = makeContractPublicationPayload({
+			providerName: 'ProviderChannelService',
+			consumerName: 'ConsumerChannelClient',
+			consumerVersionNumber: '10.20.30',
+			providerVersionNumber: '99.88.77',
+		});
+		const publicationMockTime = 1000000000000; // Fixed timestamp
+		mockTime(() => publicationMockTime);
+		await sendEvent(publicationPayload);
+
+		// Call clearPublicationThreads via the debug endpoint with clearPublicationThreads=true
+		const clearResponse = await SELF.fetch(
+			`https://example.com/debug?key=${env.DEBUG_KEY}&clearPublicationThreads=true`
+		);
+		expect(clearResponse.status).toBe(200);
+
+		// Verify all publication threads are cleared
+		const debugResponseAfter = await debug();
+		expect(debugResponseAfter.status).toBe(200);
+		const debugDataAfter: DebugInfo = await debugResponseAfter.json();
+
+		// All publication threads should be reset to initial state
+		expect(debugDataAfter.publicationThreads).toEqual({});
 	});
 });
 

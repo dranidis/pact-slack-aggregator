@@ -148,32 +148,37 @@ export class PactAggregator extends DurableObject<Env> {
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
 		// Remove any other entries with same provider|consumer|branch (regardless of pact version or channel)
 		// We only keep the most recent publication thread metadata for that trio.
-		const targetProvider = pub.providerName;
-		const targetConsumer = pub.consumerName;
-		const targetBranch = pub.consumerVersionBranch;
-		for (const existingKey of Object.keys(threads)) {
-			if (existingKey === key) continue;
-			const [providerName, consumerName, branch] = existingKey.split('|');
-			if (providerName === targetProvider && consumerName === targetConsumer && branch === targetBranch) {
-				// delete threads[existingKey];
-			}
-		}
+
 		const existing = threads[key];
 		threads[key] = {
 			ts: threadTs,
 			channelId: channelId ?? existing?.channelId,
 			payload: pub, // always store latest payload
 			summary: existing?.summary, // legacy fallback retained (will be ignored if payload present)
+			updatedTs: now().toString(),
+			createdTs: existing?.createdTs ?? now().toString(),
 		};
 		await this.ctx.storage.put('publicationThreads', threads);
 	}
 	/**
 	 * Retrieve the Slack thread timestamp for a publication event from the dictionary
 	 */
-	async getPublicationThreadTs(ver: ProviderVerificationPublishedPayload, channel: string): Promise<string | undefined> {
+	async getPublicationThreadTs(ver: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string): Promise<string | undefined> {
 		const key = this.makeKeyForPublicationThread(ver, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
 		return threads[key]?.ts;
+	}
+
+	async touchPublicationThreadUpdateTs(
+		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
+		channel: string
+	): Promise<void> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
+		if (threads[key]) {
+			threads[key].updatedTs = now().toString();
+			await this.ctx.storage.put('publicationThreads', threads);
+		}
 	}
 
 	async getPublicationPayload(
@@ -213,6 +218,10 @@ export class PactAggregator extends DurableObject<Env> {
 	 */
 	async clearAll(): Promise<void> {
 		await this.ctx.storage.deleteAll();
+	}
+
+	async clearPublicationThreads(): Promise<void> {
+		await this.ctx.storage.delete('publicationThreads');
 	}
 
 	private async consolidateEvents(currentTime: number) {
@@ -344,7 +353,7 @@ export class PactAggregator extends DurableObject<Env> {
 	) {
 		const pactVersion = getPactVersionFromPayload(pub);
 
-		return `${pub.providerName}|${pub.consumerName}|${pub.consumerVersionBranch}|${pactVersion}|${channel}`;
+		return `${pub.providerName}|${pub.consumerName}|${pactVersion}|${channel}`;
 	}
 
 	private createBucketKey(minute: string) {
