@@ -34,7 +34,7 @@ describe('Pact Slack Aggregator Worker', () => {
 			vi.fn().mockResolvedValue({
 				json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
 				ok: true,
-			})
+			}),
 		);
 
 		vi.stubGlobal(
@@ -57,8 +57,145 @@ describe('Pact Slack Aggregator Worker', () => {
 					});
 				}
 				return Promise.resolve({ ok: true });
-			})
+			}),
 		);
+	});
+
+	describe('Slack failure scenarios (expected after reliability changes)', () => {
+		it('should not delete events when Slack summary post fails (and should not post orphan details)', async () => {
+			try {
+				const baseTime = 0;
+				mockTime(() => baseTime);
+
+				await sendEvent(
+					makeProviderVerificationPayload({
+						providerName: 'ServiceA',
+						providerVersionNumber: 'version123',
+						consumerName: 'Consumer1',
+					}),
+				);
+
+				// Move to the next minute so the event is in a previous bucket and eligible for publishing
+				mockTime(() => baseTime + env.MINUTE_BUCKET_MS + 1);
+
+				const fetchMock = vi.fn().mockImplementation((url: string) => {
+					if (url.includes('slack.com/api/chat.postMessage')) {
+						return Promise.resolve({
+							ok: true,
+							json: () => Promise.resolve({ ok: false, error: 'channel_not_found' }),
+						});
+					}
+					return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+				});
+				vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+				const triggerResponse = await trigger();
+				expect(triggerResponse.status).toBe(200);
+				await new Promise((resolve) => setTimeout(resolve, 50));
+
+				// Should attempt the summary post, but should not post thread details when summary failed
+				const postCalls = fetchMock.mock.calls.filter(([u]) => (u as string).includes('chat.postMessage'));
+				expect(postCalls.length).toBe(1);
+
+				// Events should remain in Durable Object storage to allow retry
+				const debugResponse = await debug();
+				expect(debugResponse.status).toBe(200);
+				const debugData: DebugInfo = await debugResponse.json();
+				expect(debugData.totalEvents).toBe(1);
+			} finally {
+				resetTime();
+			}
+		});
+
+		it('should not delete events when Slack thread post fails after summary succeeds', async () => {
+			try {
+				const baseTime = 0;
+				mockTime(() => baseTime);
+
+				await sendEvent(
+					makeProviderVerificationPayload({
+						providerName: 'ServiceA',
+						providerVersionNumber: 'version123',
+						consumerName: 'Consumer1',
+					}),
+				);
+
+				// Move to the next minute so the event is in a previous bucket and eligible for publishing
+				mockTime(() => baseTime + env.MINUTE_BUCKET_MS + 1);
+
+				let postCount = 0;
+				const fetchMock = vi.fn().mockImplementation((url: string) => {
+					if (url.includes('slack.com/api/chat.postMessage')) {
+						postCount += 1;
+						// First post (summary) succeeds with a ts; second post (thread details) fails
+						if (postCount === 1) {
+							return Promise.resolve({
+								ok: true,
+								json: () => Promise.resolve({ ok: true, ts: '1234567890.123', channel: 'CHANNEL_ID' }),
+							});
+						}
+						return Promise.resolve({
+							ok: true,
+							json: () => Promise.resolve({ ok: false, error: 'ratelimited' }),
+						});
+					}
+					if (url.includes('slack.com/api/chat.update')) {
+						return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+					}
+					return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+				});
+				vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+				const triggerResponse = await trigger();
+				expect(triggerResponse.status).toBe(200);
+				await new Promise((resolve) => setTimeout(resolve, 50));
+
+				const postCalls = fetchMock.mock.calls.filter(([u]) => (u as string).includes('chat.postMessage'));
+				expect(postCalls.length).toBe(2);
+
+				// Events should remain in Durable Object storage to allow retry
+				const debugResponse = await debug();
+				expect(debugResponse.status).toBe(200);
+				const debugData: DebugInfo = await debugResponse.json();
+				expect(debugData.totalEvents).toBe(1);
+			} finally {
+				resetTime();
+			}
+		});
+
+		it('should delete events when Slack posts succeed', async () => {
+			try {
+				const baseTime = 0;
+				mockTime(() => baseTime);
+
+				await sendEvent(
+					makeProviderVerificationPayload({
+						providerName: 'ServiceA',
+						providerVersionNumber: 'version123',
+						consumerName: 'Consumer1',
+					}),
+				);
+
+				// Move forward enough so the event is in an older bucket and not in the quiet period
+				mockTime(() => baseTime + env.MINUTE_BUCKET_MS + env.QUIET_PERIOD_MS + 1);
+
+				const triggerResponse = await trigger();
+				expect(triggerResponse.status).toBe(200);
+				await new Promise((resolve) => setTimeout(resolve, 50));
+
+				// Should have posted at least a summary + thread message
+				expect(slackCalls.length).toBeGreaterThanOrEqual(2);
+
+				const debugResponse = await debug();
+				expect(debugResponse.status).toBe(200);
+				const debugData: DebugInfo = await debugResponse.json();
+				expect(debugData.totalEvents).toBe(0);
+				expect(debugData.totalProcessedEvents).toBe(1);
+				expect(debugData.lastProcessedCount).toBe(1);
+			} finally {
+				resetTime();
+			}
+		});
 	});
 
 	afterEach(() => {
@@ -719,7 +856,7 @@ describe('Provider channel messages', () => {
 			vi.fn().mockResolvedValue({
 				json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
 				ok: true,
-			})
+			}),
 		);
 
 		vi.stubGlobal(
@@ -741,7 +878,7 @@ describe('Provider channel messages', () => {
 					});
 				}
 				return Promise.resolve({ ok: true });
-			})
+			}),
 		);
 	});
 
@@ -938,7 +1075,7 @@ describe('Provider channel messages', () => {
 			consumerVersionNumber: '10.20.30',
 			providerVersionNumber: 'newprodver',
 			providerVersionBranch: 'master',
-			githubVerificationStatus: 'failure'
+			githubVerificationStatus: 'failure',
 		});
 		const verificationMockTime2 = publicationMockTime + 2000;
 		mockTime(() => verificationMockTime2);
@@ -952,7 +1089,7 @@ describe('Provider channel messages', () => {
 
 		let call = calls[1] as { body: string }[];
 		expect(call[0]).toContain('slack.com/api/chat.update');
-		expect(call[1]?.body).toBeDefined()
+		expect(call[1]?.body).toBeDefined();
 		let body = JSON.parse(call[1].body) as SlackPostMessageResponse;
 		expect(body.channel).toBe('CHANNEL_ID');
 		expect(body.ts).toBe(publicationMockTime.toString());
@@ -966,7 +1103,7 @@ describe('Provider channel messages', () => {
 
 		call = calls[3] as { body: string }[];
 		expect(call[0]).toContain('slack.com/api/chat.update');
-		expect(call[1]?.body).toBeDefined()
+		expect(call[1]?.body).toBeDefined();
 		body = JSON.parse(call[1].body) as SlackPostMessageResponse;
 		expect(body.channel).toBe('CHANNEL_ID');
 		expect(body.ts).toBe(publicationMockTime.toString());
@@ -1010,9 +1147,7 @@ describe('Provider channel messages', () => {
 		await sendEvent(publicationPayload);
 
 		// Call clearPublicationThreads via the debug endpoint with clearPublicationThreads=true
-		const clearResponse = await SELF.fetch(
-			`https://example.com/debug?key=${env.DEBUG_KEY}&clearPublicationThreads=true`
-		);
+		const clearResponse = await SELF.fetch(`https://example.com/debug?key=${env.DEBUG_KEY}&clearPublicationThreads=true`);
 		expect(clearResponse.status).toBe(200);
 
 		// Verify all publication threads are cleared

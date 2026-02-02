@@ -1,4 +1,10 @@
-import type { SlackDeleteMessageRequest, SlackDeleteMessageResponse, SlackPostMessageRequest, SlackPostMessageResponse, SlackUpdateMessageRequest } from './types';
+import type {
+	SlackDeleteMessageRequest,
+	SlackDeleteMessageResponse,
+	SlackPostMessageRequest,
+	SlackPostMessageResponse,
+	SlackUpdateMessageRequest,
+} from './types';
 
 // Minimal environment interface for Slack operations
 export interface SlackEnv {
@@ -6,14 +12,19 @@ export interface SlackEnv {
 	SLACK_TOKEN: string;
 }
 
-export async function postPacticipantEventsToSlack(
-	slackEnv: SlackEnv,
-	summaryText: string,
-	detailsList: string[]
-) {
+export async function postPacticipantEventsToSlack(slackEnv: SlackEnv, summaryText: string, detailsList: string[]) {
 	const summaryResp = await slackPost(slackEnv, summaryText);
+	if (!summaryResp.ok || !summaryResp.ts) {
+		throw new Error(`Slack summary post failed: ${summaryResp.error ?? 'unknown_error'}`);
+	}
+
+	if (detailsList.length === 0) return;
+
 	const threadText = detailsList.join('\n');
-	await slackPost(slackEnv, threadText, summaryResp.ts);
+	const threadResp = await slackPost(slackEnv, threadText, summaryResp.ts);
+	if (!threadResp.ok) {
+		throw new Error(`Slack thread post failed: ${threadResp.error ?? 'unknown_error'}`);
+	}
 }
 
 export async function slackPost(slackEnv: SlackEnv, text: string, threadTs?: string): Promise<SlackPostMessageResponse> {
@@ -24,26 +35,26 @@ export async function slackPost(slackEnv: SlackEnv, text: string, threadTs?: str
 
 	if (threadTs) body.thread_ts = threadTs;
 
-	const res = await fetch("https://slack.com/api/chat.postMessage", {
-		method: "POST",
+	const res = await fetch('https://slack.com/api/chat.postMessage', {
+		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
-			"Content-Type": "application/json",
+			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify(body),
 	});
 	const json: SlackPostMessageResponse = await res.json();
 	if (!json.ok) {
-		console.error("❌ Slack API Error:", {
+		console.error('❌ Slack API Error:', {
 			error: json.error,
 			needed: json.needed,
 			provided: json.provided,
 			channel: body.channel,
 			hasThreadTs: !!body.thread_ts,
-			messageLength: body.text?.length
+			messageLength: body.text?.length,
 		});
 	} else {
-		console.log("✅ Slack message sent successfully", { ts: json.ts, channel: json.channel, text: body.text.substring(0, 30) + '...' });
+		console.log('✅ Slack message sent successfully', { ts: json.ts, channel: json.channel, text: body.text.substring(0, 30) + '...' });
 	}
 	return json;
 }
@@ -52,22 +63,28 @@ export async function slackUpdate(slackEnv: SlackEnv, ts: string, newText: strin
 	const body: SlackUpdateMessageRequest = {
 		text: newText,
 		channel: slackEnv.SLACK_CHANNEL, // expect channel ID here (channel name won't work for updates)
-		ts
+		ts,
 	};
 
-	const res = await fetch("https://slack.com/api/chat.update", {
-		method: "POST",
+	const res = await fetch('https://slack.com/api/chat.update', {
+		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
-			"Content-Type": "application/json",
+			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify(body),
 	});
 	const json: SlackPostMessageResponse = await res.json();
 	if (!json.ok) {
-		console.error("❌ Slack API Error (update):", { error: json.error, needed: json.needed, provided: json.provided, channel: body.channel, ts });
+		console.error('❌ Slack API Error (update):', {
+			error: json.error,
+			needed: json.needed,
+			provided: json.provided,
+			channel: body.channel,
+			ts,
+		});
 	} else {
-		console.log("✅ Slack message updated successfully", { ts: body.ts, channel: body.channel });
+		console.log('✅ Slack message updated successfully', { ts: body.ts, channel: body.channel });
 	}
 	return json;
 }
@@ -78,9 +95,9 @@ export async function slackDelete(slackEnv: SlackEnv, ts: string): Promise<Slack
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
-			'Content-Type': 'application/json'
+			'Content-Type': 'application/json',
 		},
-		body: JSON.stringify(body)
+		body: JSON.stringify(body),
 	});
 	const json: SlackDeleteMessageResponse = await res.json();
 	if (json.ok) {
@@ -99,12 +116,17 @@ export async function slackFetchChannelMessages(slackEnv: SlackEnv, limit = 100)
 	const res = await fetch(url.toString(), {
 		method: 'GET',
 		headers: {
-			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`
-		}
+			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
+		},
 	});
 	const json: SlackPostMessageResponse = await res.json();
 	if (!json.ok) {
-		console.error('❌ Slack API Error (fetch messages):', { error: json.error, needed: json.needed, provided: json.provided, channel: slackEnv.SLACK_CHANNEL });
+		console.error('❌ Slack API Error (fetch messages):', {
+			error: json.error,
+			needed: json.needed,
+			provided: json.provided,
+			channel: slackEnv.SLACK_CHANNEL,
+		});
 	} else {
 		console.log('✅ Slack channel messages fetched successfully', { channel: slackEnv.SLACK_CHANNEL });
 	}

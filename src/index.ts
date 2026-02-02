@@ -1,54 +1,53 @@
-import { now } from "./time-utils";
-import type {
-	PactWebhookPayload,
-	PactEventData,
-	StoredPactEventData,
-	DebugInfo,
-} from './types';
+import { now } from './time-utils';
+import type { PactWebhookPayload, PactEventData, StoredPactEventData, DebugInfo } from './types';
 import { getEventDataFromPayload, getProviderSlackChannel } from './payload-utils';
-import { createSummaryAndDetailsMessages, createVerificationThreadDetailsForProviderChannel, appendVerificationStatusToProviderPublicationSummary, getPublicationSummaryForPayload } from "./messages";
-import { postPacticipantEventsToSlack, slackPost, slackUpdate } from "./slack";
+import {
+	createSummaryAndDetailsMessages,
+	createVerificationThreadDetailsForProviderChannel,
+	appendVerificationStatusToProviderPublicationSummary,
+	getPublicationSummaryForPayload,
+} from './messages';
+import { postPacticipantEventsToSlack, slackPost, slackUpdate } from './slack';
 export { PactAggregator } from './pact-aggregator';
 
 export default {
-
 	async fetch(request: Request, env: Env) {
 		const aggregatorStub = getPactAggregatorStub(env);
 
 		const url = new URL(request.url);
 
 		// Debug endpoint
-		if (url.pathname === "/debug" && url.searchParams.get("key") === env.DEBUG_KEY) {
-			if (url.searchParams.get("clear") === "true") {
+		if (url.pathname === '/debug' && url.searchParams.get('key') === env.DEBUG_KEY) {
+			if (url.searchParams.get('clear') === 'true') {
 				await aggregatorStub.clearAll();
-				return new Response("State cleared", { status: 200 });
+				return new Response('State cleared', { status: 200 });
 			}
-			if (url.searchParams.get("clearPublicationThreads") === "true") {
+			if (url.searchParams.get('clearPublicationThreads') === 'true') {
 				await aggregatorStub.clearPublicationThreads();
-				return new Response("Publication threads cleared", { status: 200 });
+				return new Response('Publication threads cleared', { status: 200 });
 			}
 
 			const debugData: DebugInfo = await aggregatorStub.getDebugInfo();
 			return new Response(JSON.stringify(debugData, null, 2), {
-				headers: { "Content-Type": "application/json" }
+				headers: { 'Content-Type': 'application/json' },
 			});
 		}
 
 		// Manual trigger endpoint
-		if (url.pathname === "/trigger" && url.searchParams.get("key") === env.DEBUG_KEY) {
+		if (url.pathname === '/trigger' && url.searchParams.get('key') === env.DEBUG_KEY) {
 			console.log(`Should process? ${shouldProcessAtCurrentTime(env)}`);
 			await processEventsForPublication(env);
-			return new Response("Processing completed", { status: 200 });
+			return new Response('Processing completed', { status: 200 });
 		}
 
-		if (request.method !== "POST") {
-			return new Response("Method Not Allowed", { status: 405 });
+		if (request.method !== 'POST') {
+			return new Response('Method Not Allowed', { status: 405 });
 		}
 
 		// Check DEBUG_KEY for POST requests
-		const debugKey = url.searchParams.get("key");
+		const debugKey = url.searchParams.get('key');
 		if (debugKey !== env.DEBUG_KEY) {
-			return new Response("Unauthorized", { status: 401 });
+			return new Response('Unauthorized', { status: 401 });
 		}
 
 		// A POST request - process webhook from Pact
@@ -61,10 +60,10 @@ export default {
 			// Also send to provider-specific channel
 			await postToProvidersChannel(rawPayload, env);
 
-			return new Response("OK", { status: 200 });
+			return new Response('OK', { status: 200 });
 		} catch (err) {
-			console.error("Webhook processing error", err);
-			return new Response("Internal Server Error", { status: 500 });
+			console.error('Webhook processing error', err);
+			return new Response('Internal Server Error', { status: 500 });
 		}
 	},
 
@@ -92,7 +91,7 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 	}
 
 	// If this is a verification result, post in the thread
-	if (rawPayload.eventType === "provider_verification_published") {
+	if (rawPayload.eventType === 'provider_verification_published') {
 		const ver = rawPayload;
 		console.log(`Posting verification result to channel ${providerSlackChannel} in thread ${threadTs}`);
 
@@ -100,23 +99,35 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 		if (ver.providerVersionBranch === 'master') {
 			const originalPayload = (await aggregatorStub.getPublicationPayload(ver, providerSlackChannel)) ?? undefined;
 			const originalSummary = originalPayload ? getPublicationSummaryForPayload(originalPayload, env) : '';
-			const updatedSummary = appendVerificationStatusToProviderPublicationSummary(originalSummary || `Verification results for *${ver.consumerName}*`, ver, env);
+			const updatedSummary = appendVerificationStatusToProviderPublicationSummary(
+				originalSummary || `Verification results for *${ver.consumerName}*`,
+				ver,
+				env,
+			);
 			const channelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
 			if (!channelId) {
 				console.error('Missing channel ID for update! ');
 			} else {
-				await slackUpdate({
-					SLACK_CHANNEL: channelId,
-					SLACK_TOKEN: env.SLACK_TOKEN
-				}, threadTs, updatedSummary);
+				await slackUpdate(
+					{
+						SLACK_CHANNEL: channelId,
+						SLACK_TOKEN: env.SLACK_TOKEN,
+					},
+					threadTs,
+					updatedSummary,
+				);
 			}
 		}
 
 		const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
-		await slackPost({
-			SLACK_CHANNEL: providerSlackChannel,
-			SLACK_TOKEN: env.SLACK_TOKEN
-		}, verificationThreadDetail, threadTs);
+		await slackPost(
+			{
+				SLACK_CHANNEL: providerSlackChannel,
+				SLACK_TOKEN: env.SLACK_TOKEN,
+			},
+			verificationThreadDetail,
+			threadTs,
+		);
 
 		// Update the thread's last updated timestamp
 		await aggregatorStub.touchPublicationThreadUpdateTs(ver, providerSlackChannel);
@@ -128,10 +139,13 @@ async function publishProviderSummaryToSlack(rawPayload: PactWebhookPayload, env
 	const providerSlackChannel = getProviderSlackChannel(env, rawPayload);
 
 	const summaryText = getPublicationSummaryForPayload(rawPayload, env);
-	const summaryResp = await slackPost({
-		SLACK_CHANNEL: providerSlackChannel,
-		SLACK_TOKEN: env.SLACK_TOKEN
-	}, summaryText);
+	const summaryResp = await slackPost(
+		{
+			SLACK_CHANNEL: providerSlackChannel,
+			SLACK_TOKEN: env.SLACK_TOKEN,
+		},
+		summaryText,
+	);
 
 	if (!summaryResp.ok) {
 		console.error(`Failed to post verification summary to ${providerSlackChannel}:`, summaryResp.error);
@@ -149,7 +163,7 @@ function shouldProcessAtCurrentTime(env: Env): boolean {
 	const date = new Date(currentTime);
 
 	// Get timezone-adjusted time
-	const localTime = new Date(date.toLocaleString("en-US", { timeZone: timezone }));
+	const localTime = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
 	const dayOfWeek = localTime.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 	const hour = localTime.getHours(); // 0-23
 	const minute = localTime.getMinutes(); // 0-59
@@ -169,8 +183,18 @@ function shouldProcessAtCurrentTime(env: Env): boolean {
 }
 
 async function processEventsForPublication(env: Env) {
-	const eventsToPublish: StoredPactEventData[] = await getPactAggregatorStub(env).getEventsToPublish();
-	await postMessagesForEventsToSlack(env, eventsToPublish);
+	try {
+		const aggregatorStub = getPactAggregatorStub(env);
+		const { events, bucketsToDelete } = await aggregatorStub.peekEventsToPublish();
+
+		if (events.length === 0) return;
+
+		await postMessagesForEventsToSlack(env, events);
+		await aggregatorStub.ackPublishedBuckets(bucketsToDelete, events.length);
+	} catch (err) {
+		// Do not delete events on publish errors; next cron/trigger will retry.
+		console.error('Failed to publish events to Slack; will retry later', err);
+	}
 }
 
 async function postMessagesForEventsToSlack(env: Env, events: StoredPactEventData[]) {
@@ -185,7 +209,7 @@ async function postMessagesForEventsToSlack(env: Env, events: StoredPactEventDat
 	for (const [key, pacticipantEvents] of Object.entries(grouped)) {
 		console.log(`Posting Slack message for ${key} with ${pacticipantEvents.length} events`);
 
-		const [pacticipant, pacticipantVersionNumber] = key.split(":");
+		const [pacticipant, pacticipantVersionNumber] = key.split(':');
 		const { summaryText, detailsList } = createSummaryAndDetailsMessages(env, pacticipant, pacticipantVersionNumber, pacticipantEvents);
 		await postPacticipantEventsToSlack(env, summaryText, detailsList);
 	}

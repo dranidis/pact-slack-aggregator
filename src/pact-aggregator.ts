@@ -24,6 +24,54 @@ export class PactAggregator extends DurableObject<Env> {
 	}
 
 	/**
+	 * Peek events that are eligible for publishing without deleting them.
+	 * Caller must invoke ackPublishedBuckets() after successful publication.
+	 */
+	async peekEventsToPublish(): Promise<{ events: StoredPactEventData[]; bucketsToDelete: string[] }> {
+		const currentTime = now();
+		const currentMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS);
+
+		// Consolidate before selecting eligible buckets
+		await this.consolidateEvents(currentTime);
+
+		const allEvents = await this.getEvents();
+		const events: StoredPactEventData[] = [];
+		const bucketsToDelete: string[] = [];
+
+		// Select all buckets except current minute
+		for (const [bucketKey, eventList] of allEvents.entries()) {
+			const bucketMinute = this.getMinuteFromBucketKey(bucketKey);
+			if (bucketMinute.toString() !== currentMinute) {
+				events.push(...eventList);
+				bucketsToDelete.push(bucketKey);
+			}
+		}
+
+		return { events, bucketsToDelete };
+	}
+
+	/**
+	 * Acknowledge successful publication by deleting the specified buckets and updating stats.
+	 */
+	async ackPublishedBuckets(bucketsToDelete: string[], processedCount: number): Promise<void> {
+		const allEvents = await this.getEvents();
+
+		for (const key of bucketsToDelete) {
+			allEvents.delete(key);
+		}
+
+		await this.setLastProcessTime(now());
+
+		if (bucketsToDelete.length > 0) {
+			await this.setEvents(allEvents);
+		}
+
+		if (processedCount > 0) {
+			await this.updateProcessingStats(processedCount);
+		}
+	}
+
+	/**
 	 * Add a new event to the aggregator.
 	 * The event is stored in a minute-based bucket.
 	 * @param eventData The event data to add
@@ -109,8 +157,8 @@ export class PactAggregator extends DurableObject<Env> {
 
 		console.log(
 			`ENV VARIABLES: GITHUB_BASE_URL=${this.env.GITHUB_BASE_URL} PACTICIPANT_TO_REPO_MAP=${JSON.stringify(
-				this.env.PACTICIPANT_TO_REPO_MAP
-			)}`
+				this.env.PACTICIPANT_TO_REPO_MAP,
+			)}`,
 		);
 
 		return {
@@ -121,7 +169,7 @@ export class PactAggregator extends DurableObject<Env> {
 				Array.from(events.entries()).map(([key, eventList]: [string, StoredPactEventData[]]) => [
 					key,
 					{ count: eventList.length, events: eventList },
-				])
+				]),
 			),
 			totalEvents: Array.from(events.values()).reduce((sum, eventList) => sum + eventList.length, 0),
 			totalProcessedEvents: totalProcessed,
@@ -142,7 +190,7 @@ export class PactAggregator extends DurableObject<Env> {
 		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
 		channel: string,
 		threadTs: string,
-		channelId?: string
+		channelId?: string,
 	): Promise<void> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
@@ -163,7 +211,10 @@ export class PactAggregator extends DurableObject<Env> {
 	/**
 	 * Retrieve the Slack thread timestamp for a publication event from the dictionary
 	 */
-	async getPublicationThreadTs(ver: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload, channel: string): Promise<string | undefined> {
+	async getPublicationThreadTs(
+		ver: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
+		channel: string,
+	): Promise<string | undefined> {
 		const key = this.makeKeyForPublicationThread(ver, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
 		return threads[key]?.ts;
@@ -171,7 +222,7 @@ export class PactAggregator extends DurableObject<Env> {
 
 	async touchPublicationThreadUpdateTs(
 		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
-		channel: string
+		channel: string,
 	): Promise<void> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
@@ -183,7 +234,7 @@ export class PactAggregator extends DurableObject<Env> {
 
 	async getPublicationPayload(
 		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
-		channel: string
+		channel: string,
 	): Promise<ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload | undefined> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
@@ -193,7 +244,7 @@ export class PactAggregator extends DurableObject<Env> {
 	async setPublicationSummaryText(
 		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
 		channel: string,
-		summaryText: string
+		summaryText: string,
 	): Promise<void> {
 		// Deprecated: only used for legacy upgrade scenarios
 		const key = this.makeKeyForPublicationThread(pub, channel);
@@ -206,7 +257,7 @@ export class PactAggregator extends DurableObject<Env> {
 
 	async getPublicationChannelId(
 		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
-		channel: string
+		channel: string,
 	): Promise<string | undefined> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads: Record<string, PublicationThreadInfo> = await this.getAllPublicationThreads();
@@ -257,7 +308,7 @@ export class PactAggregator extends DurableObject<Env> {
 	private moveEvents(
 		eventsToMove: { eventToMove: StoredPactEventData; fromBucket: string }[],
 		currentBucketKey: string,
-		allEvents: Map<string, StoredPactEventData[]>
+		allEvents: Map<string, StoredPactEventData[]>,
 	) {
 		if (eventsToMove.length > 0) {
 			console.log(`Moving ${eventsToMove.length} events to current bucket ${currentBucketKey}`);
@@ -268,7 +319,7 @@ export class PactAggregator extends DurableObject<Env> {
 			// Remove from original bucket
 			const fromEventList = allEvents.get(fromBucket)!;
 			const eventIndexToMove = fromEventList.findIndex(
-				(e) => e.ts === eventToMove.ts && e.pacticipantVersionNumber === eventToMove.pacticipantVersionNumber
+				(e) => e.ts === eventToMove.ts && e.pacticipantVersionNumber === eventToMove.pacticipantVersionNumber,
 			);
 
 			// eventIndex should always be found
@@ -349,7 +400,7 @@ export class PactAggregator extends DurableObject<Env> {
 
 	private makeKeyForPublicationThread(
 		pub: ContractRequiringVerificationPublishedPayload | ProviderVerificationPublishedPayload,
-		channel: string
+		channel: string,
 	) {
 		const pactVersion = getPactVersionFromPayload(pub);
 
