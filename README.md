@@ -163,3 +163,17 @@ And map host.docker.internal so the container can reach services running on the 
     extra_hosts:
       - "host.docker.internal:host-gateway"
 ```
+
+## Testing
+
+Run tests:
+
+```
+npm test
+```
+
+With coverage:
+
+```
+npm run test -- --coverage=true
+```

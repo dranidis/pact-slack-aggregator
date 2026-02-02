@@ -10,12 +10,13 @@
 		"start": "wrangler dev --config wrangler.dev.jsonc",
 		"types": "wrangler types -c wrangler.prod.jsonc",
 		"test": "vitest",
+		"test:ci": "vitest run",
 		"cf-typegen": "wrangler types",
 		"lint": "eslint . --ext .ts,.js,.mts",
 		"lint:fix": "eslint . --ext .ts,.js,.mts --fix"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.8.19",
+		"@cloudflare/vitest-pool-workers": "^0.12.8",
 		"@eslint/js": "^9.38.0",
 		"@typescript-eslint/eslint-plugin": "^8.46.2",
 		"@typescript-eslint/parser": "^8.46.2",
