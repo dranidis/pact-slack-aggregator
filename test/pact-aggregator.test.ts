@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { mockTime, now } from '../src/time-utils';
+import { mockTime, now, resetTime } from '../src/time-utils';
 import {
 	expectTimestampToBeRecent,
 	createUniqueTestId,
@@ -385,6 +385,117 @@ describe('PactAggregator', () => {
 
 			const threadTs = await aggregator.getPublicationThreadTs(ver, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`);
 			expect(threadTs).toBeDefined();
+		});
+	});
+
+	describe('prunePublicationThreads', () => {
+		const DAY_MS = 24 * 60 * 60 * 1000;
+
+		function makePublicationPayloadWithPactVersion(pactVersion: string) {
+			return makeContractPublicationPayload({
+				providerName: 'ProviderX',
+				consumerName: 'ConsumerY',
+				pactUrl: `https://example.com/pact-version/${pactVersion}`,
+			});
+		}
+
+		it('should delete old threads beyond newest 10 per provider/consumer/channel', async () => {
+			try {
+				const channel = '#pact-ProviderX';
+				const pruneNow = 200 * DAY_MS;
+				const start = pruneNow - 120 * DAY_MS;
+
+				for (let i = 0; i < 15; i++) {
+					mockTime(() => start + i * DAY_MS);
+					const payload = makePublicationPayloadWithPactVersion(`V${i}`);
+					await aggregator.setPublicationThreadTs(payload, channel, `TS${i}`, 'CHANNEL_ID');
+				}
+
+				mockTime(() => pruneNow);
+				await aggregator.prunePublicationThreads();
+
+				const debugData = await aggregator.getDebugInfo();
+				expect(Object.keys(debugData.publicationThreads)).toHaveLength(10);
+
+				for (let i = 0; i < 5; i++) {
+					expect(debugData.publicationThreads).not.toHaveProperty(`ProviderX|ConsumerY|V${i}|${channel}`);
+				}
+				for (let i = 5; i < 15; i++) {
+					expect(debugData.publicationThreads).toHaveProperty(`ProviderX|ConsumerY|V${i}|${channel}`);
+				}
+			} finally {
+				resetTime();
+			}
+		});
+
+		it('should retain all threads updated within 3 months (even beyond newest 10)', async () => {
+			try {
+				const channel = '#pact-ProviderX';
+				const pruneNow = 200 * DAY_MS;
+				const oldStart = pruneNow - 120 * DAY_MS;
+				const recentStart = pruneNow - 30 * DAY_MS;
+
+				for (let i = 0; i < 3; i++) {
+					mockTime(() => oldStart + i * DAY_MS);
+					const payload = makePublicationPayloadWithPactVersion(`OLD${i}`);
+					await aggregator.setPublicationThreadTs(payload, channel, `TS_OLD${i}`, 'CHANNEL_ID');
+				}
+
+				for (let i = 0; i < 12; i++) {
+					mockTime(() => recentStart + i * DAY_MS);
+					const payload = makePublicationPayloadWithPactVersion(`RECENT${i}`);
+					await aggregator.setPublicationThreadTs(payload, channel, `TS_RECENT${i}`, 'CHANNEL_ID');
+				}
+
+				mockTime(() => pruneNow);
+				await aggregator.prunePublicationThreads();
+
+				const debugData = await aggregator.getDebugInfo();
+				expect(Object.keys(debugData.publicationThreads)).toHaveLength(12);
+
+				for (let i = 0; i < 3; i++) {
+					expect(debugData.publicationThreads).not.toHaveProperty(`ProviderX|ConsumerY|OLD${i}|${channel}`);
+				}
+				for (let i = 0; i < 12; i++) {
+					expect(debugData.publicationThreads).toHaveProperty(`ProviderX|ConsumerY|RECENT${i}|${channel}`);
+				}
+			} finally {
+				resetTime();
+			}
+		});
+
+		it('should apply retention per channel (channel-specific threads)', async () => {
+			try {
+				const channelA = '#pact-ProviderX';
+				const channelB = '#pact-ProviderX-alt';
+				const pruneNow = 200 * DAY_MS;
+				const start = pruneNow - 120 * DAY_MS;
+
+				for (const channel of [channelA, channelB]) {
+					for (let i = 0; i < 15; i++) {
+						mockTime(() => start + i * DAY_MS);
+						const payload = makePublicationPayloadWithPactVersion(`V${i}`);
+						await aggregator.setPublicationThreadTs(payload, channel, `${channel}:TS${i}`, 'CHANNEL_ID');
+					}
+				}
+
+				mockTime(() => pruneNow);
+				await aggregator.prunePublicationThreads();
+
+				const debugData = await aggregator.getDebugInfo();
+				expect(Object.keys(debugData.publicationThreads)).toHaveLength(20);
+
+				for (const channel of [channelA, channelB]) {
+					for (let i = 0; i < 5; i++) {
+						expect(debugData.publicationThreads).not.toHaveProperty(`ProviderX|ConsumerY|V${i}|${channel}`);
+					}
+					for (let i = 5; i < 15; i++) {
+						expect(debugData.publicationThreads).toHaveProperty(`ProviderX|ConsumerY|V${i}|${channel}`);
+					}
+				}
+			} finally {
+				resetTime();
+			}
 		});
 	});
 });

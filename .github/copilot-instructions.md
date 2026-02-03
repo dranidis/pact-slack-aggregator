@@ -13,7 +13,7 @@
 - **Secrets/config**:
   - Copy `.env.example` → `.env` and fill `SLACK_TOKEN`, `DEBUG_KEY`. Always run `wrangler types` after changing env vars so `worker-configuration.d.ts` stays current.
   - Copy wrangler templates → `wrangler.dev.jsonc` and `wrangler.prod.jsonc`, fill non-secret vars (channel names, GitHub base URL, etc.). Prod file stays gitignored.
-  - Durable Object binding name must match `PACT_AGGREGATOR` in configs; leave cron schedule at `*/2 * * * *` unless you know why to change it.
+  - Durable Object binding name must match `PACT_AGGREGATOR` in configs; cron schedules are `*/2 * * * *` (publish cadence, time-gated in code) plus `0 3 * * *` (daily maintenance/out-of-hours).
 
 ## Commands & Validation
 

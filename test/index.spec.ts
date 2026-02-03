@@ -1158,6 +1158,40 @@ describe('Provider channel messages', () => {
 		// All publication threads should be reset to initial state
 		expect(debugDataAfter.publicationThreads).toEqual({});
 	});
+
+	it('should prune publication thread metadata on daily maintenance cron', async () => {
+		try {
+			const aggregatorStub = env.PACT_AGGREGATOR.getByName(env.PACT_AGGREGATOR_NAME);
+			await aggregatorStub.clearAll();
+
+			const DAY_MS = 24 * 60 * 60 * 1000;
+			const channel = '#pact-ProviderX';
+			const pruneNow = 200 * DAY_MS;
+			const start = pruneNow - 120 * DAY_MS;
+
+			for (let i = 0; i < 15; i++) {
+				mockTime(() => start + i * DAY_MS);
+				const payload = makeContractPublicationPayload({
+					providerName: 'ProviderX',
+					consumerName: 'ConsumerY',
+					pactUrl: `https://example.com/pact-version/V${i}`,
+				});
+				await aggregatorStub.setPublicationThreadTs(payload, channel, `TS${i}`, 'CHANNEL_ID');
+			}
+
+			mockTime(() => pruneNow);
+			const ctx = createExecutionContext();
+			worker.scheduled({ cron: '0 3 * * *', scheduledTime: pruneNow } as ScheduledEvent, env, ctx);
+			await waitOnExecutionContext(ctx);
+
+			const debugResponse = await debug();
+			expect(debugResponse.status).toBe(200);
+			const debugData: DebugInfo = await debugResponse.json();
+			expect(Object.keys(debugData.publicationThreads)).toHaveLength(10);
+		} finally {
+			resetTime();
+		}
+	});
 });
 
 async function debug() {

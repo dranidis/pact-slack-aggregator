@@ -10,6 +10,9 @@ import {
 import { postPacticipantEventsToSlack, slackPost, slackUpdate } from './slack';
 export { PactAggregator } from './pact-aggregator';
 
+const PUBLISH_CRON = '*/2 * * * *';
+const DAILY_MAINTENANCE_CRON = '0 3 * * *';
+
 export default {
 	async fetch(request: Request, env: Env) {
 		const aggregatorStub = getPactAggregatorStub(env);
@@ -69,11 +72,33 @@ export default {
 
 	// Runs automatically (Cloudflare Cron). Schedule defined in wrangler.jsonc
 	scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+		if (event.cron === DAILY_MAINTENANCE_CRON) {
+			ctx.waitUntil(runDailyMaintenance(env));
+			return;
+		}
+
+		// Default: publish cron (frequent) gated by local working-hours rules.
+		// If Cloudflare ever calls us with an unexpected cron string, fall back to the gated path.
+		if (event.cron === PUBLISH_CRON || !event.cron) {
+			if (shouldProcessAtCurrentTime(env)) {
+				ctx.waitUntil(processEventsForPublication(env));
+			}
+			return;
+		}
+
 		if (shouldProcessAtCurrentTime(env)) {
 			ctx.waitUntil(processEventsForPublication(env));
 		}
 	},
 };
+
+async function runDailyMaintenance(env: Env) {
+	// Daily cron runs under the longer Scheduled Worker limit (15 min for intervals >= 1 hour).
+	// Run retention pruning for publication thread metadata, then attempt a publish.
+	const aggregatorStub = getPactAggregatorStub(env);
+	await aggregatorStub.prunePublicationThreads();
+	await processEventsForPublication(env);
+}
 
 async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) {
 	const aggregatorStub = getPactAggregatorStub(env);
