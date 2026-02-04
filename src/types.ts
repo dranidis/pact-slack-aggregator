@@ -53,12 +53,32 @@ export type StoredPactEventData = StoredProviderVerificationEventData | StoredCo
 export interface PublicationThreadInfo {
 	ts: string; // root message timestamp
 	createdTs: string; // creation timestamp
-	updatedTs?: string; // latest update message timestamp
-	channelId?: string; // Slack channel Id
+	updatedTs: string; // latest update message timestamp
+	channelId: string; // Slack channel Id
 	// Store the original webhook payload that created the root message so we can derive summary text later
-	payload?: PactWebhookPayload;
+	payload: PactWebhookPayload;
 	// Legacy field kept for backward compatibility (existing stored entries before refactor)
-	summary?: string;
+}
+
+export interface ParsedPublicationThreadKey {
+	providerName: string;
+	consumerName: string;
+	pactVersion: string;
+	channel: string;
+}
+
+export interface PublicationThreadEntry {
+	key: string;
+	info: PublicationThreadInfo;
+	parsed: ParsedPublicationThreadKey;
+	groupKey: string;
+	updatedTime: number;
+}
+
+export interface RemovedPublicationThreadEntry {
+	key: string;
+	info: PublicationThreadInfo;
+	parsed: ParsedPublicationThreadKey;
 }
 
 export interface DebugInfo {
@@ -80,7 +100,7 @@ export interface DebugInfo {
 	slackChannel: string;
 	githubBaseUrl: string;
 	pacticipantToRepoMap: Record<string, string>;
-	publicationThreads: Record<string, PublicationThreadInfo>;
+	publicationThreads: Record<string, PublicationThreadInfo | undefined>;
 }
 
 export interface SlackPostMessageRequest {

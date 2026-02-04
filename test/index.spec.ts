@@ -9,12 +9,15 @@ import {
 	PublicationThreadInfo,
 	SlackPostMessageRequest,
 	SlackPostMessageResponse,
+	SlackUpdateMessageRequest,
 } from '../src/types';
 import { mockTime, now, resetTime } from '../src/time-utils';
+import { THREAD_REMOVAL_NOTICE } from '../src/constants';
 
 interface SlackCallMock {
 	text?: string;
 	channel: string;
+	thread_ts?: string;
 	blocks?: {
 		text?: {
 			text?: string;
@@ -31,17 +34,10 @@ describe('Pact Slack Aggregator Worker', () => {
 		// Mock fetch for Slack API calls
 		vi.stubGlobal(
 			'fetch',
-			vi.fn().mockResolvedValue({
-				json: () => Promise.resolve({ ok: true, ts: '1234567890.123' }),
-				ok: true,
-			}),
-		);
-
-		vi.stubGlobal(
-			'fetch',
-			vi.fn().mockImplementation((url: string, options: { body: string }) => {
+			vi.fn().mockImplementation((url: string, options?: { body?: string }) => {
 				if (url.includes('slack.com/api/chat.postMessage')) {
-					const payload = JSON.parse(options.body) as SlackCallMock;
+					const parsedBody: unknown = options?.body ? JSON.parse(options.body) : {};
+					const payload = parsedBody as SlackCallMock;
 					console.log('Parsed Slack payload:', payload);
 					if (payload.channel === env.SLACK_CHANNEL) {
 						slackCalls.push(payload);
@@ -50,13 +46,24 @@ describe('Pact Slack Aggregator Worker', () => {
 						json: (): Promise<SlackPostMessageResponse> =>
 							Promise.resolve({
 								ok: true,
-								channel: 'CHANNEL_ID',
-								ts: '1234567890.123',
+								channel: payload.channel ?? 'CHANNEL_ID',
+								ts: payload.thread_ts ?? '1234567890.123',
 							}),
 						ok: true,
 					});
 				}
-				return Promise.resolve({ ok: true });
+
+				if (url.includes('slack.com/api/chat.update')) {
+					return Promise.resolve({
+						json: (): Promise<SlackPostMessageResponse> => Promise.resolve({ ok: true }),
+						ok: true,
+					});
+				}
+
+				return Promise.resolve({
+					json: (): Promise<SlackPostMessageResponse> => Promise.resolve({ ok: true }),
+					ok: true,
+				});
 			}),
 		);
 	});
@@ -508,7 +515,7 @@ Pact publications: 1`;
 				expect(debugData.totalEvents).toBe(2);
 				// both event1 and event2 should be in the same bucket
 				const recentBucketKey = Object.keys(debugData.eventBuckets).sort().pop()!;
-				const recentBucket = debugData.eventBuckets[recentBucketKey];
+				const recentBucket = debugData.eventBuckets[recentBucketKey]!;
 				expect(recentBucket.count).toBe(2);
 				const pacticipantVersionNumbers = recentBucket.events.map((e) => e.pacticipantVersionNumber);
 				expect(pacticipantVersionNumbers).toEqual(['version123', 'version123']);
@@ -621,7 +628,7 @@ Pact publications: 1`;
 
 				// console.log('Thread messages:', threadMessages);
 				expect(threadMessages.length).toBe(1);
-				expect(threadMessages[0].text).toContain(expectedUrl);
+				expect(threadMessages[0]!.text).toContain(expectedUrl);
 
 				// Verify debug info shows remaining events
 				const debugResponse = await debug();
@@ -675,9 +682,9 @@ Pact publications: 1`;
 
 				// Verify NO Slack message was sent with recent provider version as the event is too recent
 				expect(slackCalls.length).toBe(2);
-				expect(slackCalls[0].text).toContain('Pact verifications: ✅1');
+				expect(slackCalls[0]!.text).toContain('Pact verifications: ✅1');
 				// verify sent messages are for different provider versions
-				expect(slackCalls[0].text).toContain('otherVersion789');
+				expect(slackCalls[0]!.text).toContain('otherVersion789');
 			} finally {
 				resetTime();
 			}
@@ -910,7 +917,7 @@ describe('Provider channel messages', () => {
 		const call = calls[0] as { body: string }[];
 		expect(call[0]).toContain('slack.com/api/chat.postMessage');
 		expect(call[1]?.body).toBeDefined();
-		const body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		const body = JSON.parse(call[1]!.body) as SlackPostMessageResponse;
 		expect(body.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
 
 		const debugResponse = await debug();
@@ -954,13 +961,13 @@ describe('Provider channel messages', () => {
 		const call = calls[0] as { body: string }[];
 		expect(call[0]).toContain('slack.com/api/chat.postMessage');
 		expect(call[1]?.body).toBeDefined();
-		const body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		const body = JSON.parse(call[1]!.body) as SlackPostMessageResponse;
 		expect(body.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
 
 		const call2 = calls[1] as { body: string }[];
 		expect(call2[0]).toContain('slack.com/api/chat.postMessage');
 		expect(call2[1]?.body).toBeDefined();
-		const body2 = JSON.parse(call2[1].body) as SlackPostMessageResponse;
+		const body2 = JSON.parse(call2[1]!.body) as SlackPostMessageResponse;
 		expect(body2.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
 
 		expect(body2.thread_ts).toBe(currentMockTime.toString());
@@ -1019,7 +1026,7 @@ describe('Provider channel messages', () => {
 		const call = calls[1] as { body: string }[];
 		expect(call[0]).toContain('slack.com/api/chat.postMessage');
 		expect(call[1]?.body).toBeDefined();
-		const body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		const body = JSON.parse(call[1]!.body) as SlackPostMessageResponse;
 		expect(body.channel).toBe(`${env.PROVIDER_CHANNEL_PREFIX}ProviderChannelService`);
 		expect(body.thread_ts).toBe(publicationMockTime.toString());
 
@@ -1090,7 +1097,7 @@ describe('Provider channel messages', () => {
 		let call = calls[1] as { body: string }[];
 		expect(call[0]).toContain('slack.com/api/chat.update');
 		expect(call[1]?.body).toBeDefined();
-		let body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		let body = JSON.parse(call[1]!.body) as SlackPostMessageResponse;
 		expect(body.channel).toBe('CHANNEL_ID');
 		expect(body.ts).toBe(publicationMockTime.toString());
 		expect(body.text).toContain('Last verification on');
@@ -1104,7 +1111,7 @@ describe('Provider channel messages', () => {
 		call = calls[3] as { body: string }[];
 		expect(call[0]).toContain('slack.com/api/chat.update');
 		expect(call[1]?.body).toBeDefined();
-		body = JSON.parse(call[1].body) as SlackPostMessageResponse;
+		body = JSON.parse(call[1]!.body) as SlackPostMessageResponse;
 		expect(body.channel).toBe('CHANNEL_ID');
 		expect(body.ts).toBe(publicationMockTime.toString());
 		expect(body.text).toContain('Last verification on');
@@ -1169,14 +1176,14 @@ describe('Provider channel messages', () => {
 			const pruneNow = 200 * DAY_MS;
 			const start = pruneNow - 120 * DAY_MS;
 
-			for (let i = 0; i < 15; i++) {
+			for (let i = 0; i < 11; i++) {
 				mockTime(() => start + i * DAY_MS);
 				const payload = makeContractPublicationPayload({
 					providerName: 'ProviderX',
 					consumerName: 'ConsumerY',
 					pactUrl: `https://example.com/pact-version/V${i}`,
 				});
-				await aggregatorStub.setPublicationThreadTs(payload, channel, `TS${i}`, 'CHANNEL_ID');
+				await aggregatorStub.upsertPublicationThreadInfo(payload, channel, `TS${i}`, 'CHANNEL_ID');
 			}
 
 			mockTime(() => pruneNow);
@@ -1188,6 +1195,24 @@ describe('Provider channel messages', () => {
 			expect(debugResponse.status).toBe(200);
 			const debugData: DebugInfo = await debugResponse.json();
 			expect(Object.keys(debugData.publicationThreads)).toHaveLength(10);
+
+			const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+			const calls = fetchMock.mock.calls;
+			expect(calls.length).toBe(2);
+
+			const [postUrl, postInit] = calls[0] as [string, { body: string }];
+			expect(postUrl).toContain('slack.com/api/chat.postMessage');
+			const postBody = JSON.parse(postInit.body) as SlackPostMessageRequest;
+			expect(postBody.thread_ts).toBe('TS0');
+			expect(postBody.channel).toBe('CHANNEL_ID');
+			expect(postBody.text).toBe(THREAD_REMOVAL_NOTICE);
+
+			const [updateUrl, updateInit] = calls[1] as [string, { body: string }];
+			expect(updateUrl).toContain('slack.com/api/chat.update');
+			const updateBody = JSON.parse(updateInit.body) as SlackUpdateMessageRequest;
+			expect(updateBody.channel).toBe('CHANNEL_ID');
+			expect(updateBody.ts).toBe('TS0');
+			expect(updateBody.text).toContain(THREAD_REMOVAL_NOTICE);
 		} finally {
 			resetTime();
 		}

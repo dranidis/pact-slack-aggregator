@@ -69,6 +69,12 @@ _All commands run from repo root unless stated. Times recorded on a Linux devcon
 - Sample cURL to trigger processing locally: `curl "http://localhost:$DEV_PORT/trigger?key=$DEBUG_KEY"` while `npm run dev` is running.
 - When adding environment variables, update `.env.example`, both wrangler templates, and regenerate types.
 
+## DRY & YAGNI guardrails
+
+- **DRY (Don't Repeat Yourself)**: keep every change tightly focused, reuse existing helpers instead of cloning logic, and expose the smallest possible surface (e.g., funnel all message-formatting dependencies through a single builder rather than sprinkling raw `env` usage everywhere).
+- **YAGNI (You Aren't Gonna Need It)**: do not add APIs, storage fields, or configuration flags until production code actively depends on them. Remove deprecated helpers once the last call site disappears—tests should cover real usage, not keep dead code alive.
+- When reviewing or implementing features, explicitly call out violations (duplicate Slack-posting flows, unused Durable Object methods, speculative env vars) and either delete them or open cleanup tasks before merging.
+
 ## Final Guidance
 
 Trust these instructions for future tasks; only search the codebase when information here is missing or proven incorrect.

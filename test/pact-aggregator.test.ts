@@ -46,10 +46,10 @@ describe('PactAggregator', () => {
 
 			const eventBucketsArray = Object.values(debugData.eventBuckets);
 			expect(eventBucketsArray).toHaveLength(1);
-			expect(eventBucketsArray[0].count).toBe(1);
-			expect(eventBucketsArray[0].events).toBeDefined();
+			expect(eventBucketsArray[0]!.count).toBe(1);
+			expect(eventBucketsArray[0]!.events).toBeDefined();
 
-			const storedEvent = eventBucketsArray[0].events[0];
+			const storedEvent = eventBucketsArray[0]!.events[0];
 			expect(storedEvent).toMatchObject(testEvent);
 		});
 
@@ -76,7 +76,7 @@ describe('PactAggregator', () => {
 			// Should have one bucket with two events
 			const eventBucketsArray = Object.values(debugData.eventBuckets);
 			expect(eventBucketsArray).toHaveLength(1);
-			expect(eventBucketsArray[0].count).toBe(2);
+			expect(eventBucketsArray[0]!.count).toBe(2);
 		});
 	});
 
@@ -175,7 +175,7 @@ describe('PactAggregator', () => {
 
 			const buckets = Object.values(debugData.eventBuckets);
 			expect(buckets).toHaveLength(1); // Only current bucket remains
-			expect(buckets[0].count).toBe(2); // Both events in same bucket
+			expect(buckets[0]!.count).toBe(2); // Both events in same bucket
 		});
 
 		it('should handle events from previous bucket that are within quiet period', async () => {
@@ -367,7 +367,7 @@ describe('PactAggregator', () => {
 			});
 
 			// Add a publication event
-			await aggregator.setPublicationThreadTs(pub, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`, 'thread123');
+			await aggregator.upsertPublicationThreadInfo(pub, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`, 'thread123', 'CHANNEL_ID_ABC');
 
 			// Get debug info
 			const debugInfo = await aggregator.getDebugInfo();
@@ -408,7 +408,7 @@ describe('PactAggregator', () => {
 				for (let i = 0; i < 15; i++) {
 					mockTime(() => start + i * DAY_MS);
 					const payload = makePublicationPayloadWithPactVersion(`V${i}`);
-					await aggregator.setPublicationThreadTs(payload, channel, `TS${i}`, 'CHANNEL_ID');
+					await aggregator.upsertPublicationThreadInfo(payload, channel, `TS${i}`, 'CHANNEL_ID');
 				}
 
 				mockTime(() => pruneNow);
@@ -438,13 +438,13 @@ describe('PactAggregator', () => {
 				for (let i = 0; i < 3; i++) {
 					mockTime(() => oldStart + i * DAY_MS);
 					const payload = makePublicationPayloadWithPactVersion(`OLD${i}`);
-					await aggregator.setPublicationThreadTs(payload, channel, `TS_OLD${i}`, 'CHANNEL_ID');
+					await aggregator.upsertPublicationThreadInfo(payload, channel, `TS_OLD${i}`, 'CHANNEL_ID');
 				}
 
 				for (let i = 0; i < 12; i++) {
 					mockTime(() => recentStart + i * DAY_MS);
 					const payload = makePublicationPayloadWithPactVersion(`RECENT${i}`);
-					await aggregator.setPublicationThreadTs(payload, channel, `TS_RECENT${i}`, 'CHANNEL_ID');
+					await aggregator.upsertPublicationThreadInfo(payload, channel, `TS_RECENT${i}`, 'CHANNEL_ID');
 				}
 
 				mockTime(() => pruneNow);
@@ -475,7 +475,7 @@ describe('PactAggregator', () => {
 					for (let i = 0; i < 15; i++) {
 						mockTime(() => start + i * DAY_MS);
 						const payload = makePublicationPayloadWithPactVersion(`V${i}`);
-						await aggregator.setPublicationThreadTs(payload, channel, `${channel}:TS${i}`, 'CHANNEL_ID');
+						await aggregator.upsertPublicationThreadInfo(payload, channel, `${channel}:TS${i}`, 'CHANNEL_ID');
 					}
 				}
 
@@ -493,6 +493,37 @@ describe('PactAggregator', () => {
 						expect(debugData.publicationThreads).toHaveProperty(`ProviderX|ConsumerY|V${i}|${channel}`);
 					}
 				}
+			} finally {
+				resetTime();
+			}
+		});
+
+		it('should report metadata for removed threads when pruning deletes entries', async () => {
+			try {
+				const channel = '#pact-ProviderX';
+				const channelId = 'CHANNEL_ID';
+				const pruneNow = 400 * DAY_MS;
+				const start = pruneNow - 200 * DAY_MS;
+				let removedPayloadKey = '';
+
+				for (let i = 0; i < 11; i++) {
+					mockTime(() => start + i * DAY_MS);
+					const payload = makePublicationPayloadWithPactVersion(`V${i}`);
+					if (i === 0) {
+						removedPayloadKey = `ProviderX|ConsumerY|V${i}|${channel}`;
+					}
+					await aggregator.upsertPublicationThreadInfo(payload, channel, `TS${i}`, channelId);
+				}
+
+				mockTime(() => pruneNow);
+				const removedEntries = await aggregator.prunePublicationThreads();
+				expect(removedEntries).toHaveLength(1);
+				const removedEntry = removedEntries[0]!;
+				expect(removedEntry.key).toBe(removedPayloadKey);
+				expect(removedEntry.info.ts).toBe('TS0');
+				expect(removedEntry.parsed.providerName).toBe('ProviderX');
+				expect(removedEntry.parsed.consumerName).toBe('ConsumerY');
+				expect(removedEntry.parsed.channel).toBe(channel);
 			} finally {
 				resetTime();
 			}

@@ -56,6 +56,15 @@ Equivalently:
 - Keep everything “recent” (updated < 3 months), regardless of rank.
 - Delete only entries that are both **old** and **beyond the newest 10**.
 
+### R4: Notification when deleting pact versions
+
+When a pact version is removed from `publicationThreads`, the Worker must:
+
+1. Post the message **"Pact version removed from slack-aggregator: this thread will stop receiving updates"** in the Slack thread channel for that pact version.
+2. Update the corresponding summary message with the same text so that the top-level summary also reflects the removal.
+
+These notifications ensure Slack users know the thread is no longer active.
+
 ## Channel handling (note)
 
 Publication thread entries are also stored with a Slack channel dimension in the key.
