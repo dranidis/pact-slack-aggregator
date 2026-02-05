@@ -5,12 +5,12 @@ import type {
 	StoredPactEventData,
 	DebugInfo,
 	PublicationThreadInfo,
-	ParsedPublicationThreadKey,
 	PublicationThreadEntry,
-	RemovedPublicationThreadEntry,
 	PactWebhookPayload,
 } from './types';
 import { getPactVersionFromPayload } from './payload-utils';
+import { DAY_MS } from './constants';
+import { coerceInt } from './utils';
 
 /**
  * Cloudflare Durable Objects ensure that:
@@ -255,25 +255,20 @@ export class PactAggregator extends DurableObject<Env> {
 	/**
 	 * Prune stored publication thread metadata according to docs/pact-retention policy.md.
 	 *
-	 * Policy (per provider/consumer pair per channel):
-	 * - Keep the newest 10 pact versions by update time.
-	 * - Keep anything updated within the last 90 days.
-	 * - Delete only entries that are both old and beyond the newest 10.
+	 * Policy (per provider/consumer pair):
+	 * - Keep at least the newest N pact versions by update time.
+	 * - Keep anything updated within the last D days.
+	 * - Delete only entries that are both old and beyond the newest N.
 	 */
-	async prunePublicationThreads(): Promise<RemovedPublicationThreadEntry[]> {
+	async prunePublicationThreads(): Promise<PublicationThreadEntry[]> {
 		const threads = await this.getAllPublicationThreads();
 		const threadEntries = Object.entries(threads);
 		const entries = threadEntries
 			.map(([key, info]) => {
-				const parsed = this.parsePublicationThreadKey(key);
-				if (!parsed) return undefined;
 				if (!info) return undefined;
 				return {
 					key,
 					info,
-					parsed,
-					groupKey: `${parsed.providerName}|${parsed.consumerName}|${parsed.channel}`,
-					updatedTime: Number(info.updatedTs),
 				};
 			})
 			.filter((x): x is PublicationThreadEntry => Boolean(x));
@@ -282,28 +277,32 @@ export class PactAggregator extends DurableObject<Env> {
 			return [];
 		}
 
-		const cutoff = now() - 90 * 24 * 60 * 60 * 1000;
+		const recentDays = coerceInt(this.env.RETENTION_RECENT_DAYS, 90, { min: 0 });
+		const minPactVersions = coerceInt(this.env.RETENTION_MIN_PACT_VERSIONS, 10, { min: 1 });
+		const cutoff = now() - recentDays * DAY_MS;
 		const groups = new Map<string, PublicationThreadEntry[]>();
 		for (const entry of entries) {
-			const group = groups.get(entry.groupKey);
+			const groupKey = `${entry.info.payload.providerName}|${entry.info.payload.consumerName}|${entry.info.channelId}`;
+			const group = groups.get(groupKey);
 			if (group) {
 				group.push(entry);
 			} else {
-				groups.set(entry.groupKey, [entry]);
+				groups.set(groupKey, [entry]);
 			}
 		}
 
-		const removedEntries: RemovedPublicationThreadEntry[] = [];
+		const removedEntries: PublicationThreadEntry[] = [];
 		for (const groupEntries of groups.values()) {
 			// Newest first by update time.
-			groupEntries.sort((a, b) => b.updatedTime - a.updatedTime);
+			groupEntries.sort((a, b) => Number(b.info.updatedTs) - Number(a.info.updatedTs));
 
-			const newestKeys = new Set(groupEntries.slice(0, 10).map((e) => e.key));
+			const newestKeys = new Set(groupEntries.slice(0, minPactVersions).map((e) => e.key));
+
 			for (const entry of groupEntries) {
-				const isRecent = entry.updatedTime >= cutoff;
+				const isRecent = Number(entry.info.updatedTs) >= cutoff;
 				const shouldKeep = newestKeys.has(entry.key) || isRecent;
 				if (!shouldKeep) {
-					removedEntries.push({ key: entry.key, info: entry.info, parsed: entry.parsed });
+					removedEntries.push({ key: entry.key, info: entry.info });
 					delete threads[entry.key];
 				}
 			}
@@ -437,14 +436,6 @@ export class PactAggregator extends DurableObject<Env> {
 	private async getAllPublicationThreads(): Promise<Record<string, PublicationThreadInfo | undefined>> {
 		const threads: Record<string, PublicationThreadInfo | undefined> = (await this.ctx.storage.get('publicationThreads')) ?? {};
 		return threads;
-	}
-
-	private parsePublicationThreadKey(key: string): ParsedPublicationThreadKey | undefined {
-		const parts = key.split('|');
-		if (parts.length !== 4) return undefined;
-		const [providerName, consumerName, pactVersion, channel] = parts;
-		if (!providerName || !consumerName || !pactVersion || !channel) return undefined;
-		return { providerName, consumerName, pactVersion, channel };
 	}
 
 	private getThreadUpdatedTime(info: PublicationThreadInfo): number {

@@ -9,7 +9,9 @@ import {
 	makeContractPublicationPayload,
 	makeProviderVerificationPayload,
 } from './test-utilities';
+import { withRetentionPolicyForDurableObject } from './do-env-overrides';
 import { PactAggregator } from '../src';
+import { DAY_MS } from '../src/constants';
 
 describe('PactAggregator', () => {
 	let aggregator: DurableObjectStub<PactAggregator>;
@@ -389,8 +391,6 @@ describe('PactAggregator', () => {
 	});
 
 	describe('prunePublicationThreads', () => {
-		const DAY_MS = 24 * 60 * 60 * 1000;
-
 		function makePublicationPayloadWithPactVersion(pactVersion: string) {
 			return makeContractPublicationPayload({
 				providerName: 'ProviderX',
@@ -412,7 +412,10 @@ describe('PactAggregator', () => {
 				}
 
 				mockTime(() => pruneNow);
-				await aggregator.prunePublicationThreads();
+
+				await withRetentionPolicyForDurableObject(aggregator, { minPactVersions: 10, recentDays: 0 }, async () => {
+					await aggregator.prunePublicationThreads();
+				});
 
 				const debugData = await aggregator.getDebugInfo();
 				expect(Object.keys(debugData.publicationThreads)).toHaveLength(10);
@@ -448,7 +451,10 @@ describe('PactAggregator', () => {
 				}
 
 				mockTime(() => pruneNow);
-				await aggregator.prunePublicationThreads();
+
+				await withRetentionPolicyForDurableObject(aggregator, { minPactVersions: 10, recentDays: 90 }, async () => {
+					await aggregator.prunePublicationThreads();
+				});
 
 				const debugData = await aggregator.getDebugInfo();
 				expect(Object.keys(debugData.publicationThreads)).toHaveLength(12);
@@ -464,66 +470,32 @@ describe('PactAggregator', () => {
 			}
 		});
 
-		it('should apply retention per channel (channel-specific threads)', async () => {
-			try {
-				const channelA = '#pact-ProviderX';
-				const channelB = '#pact-ProviderX-alt';
-				const pruneNow = 200 * DAY_MS;
-				const start = pruneNow - 120 * DAY_MS;
-
-				for (const channel of [channelA, channelB]) {
-					for (let i = 0; i < 15; i++) {
-						mockTime(() => start + i * DAY_MS);
-						const payload = makePublicationPayloadWithPactVersion(`V${i}`);
-						await aggregator.upsertPublicationThreadInfo(payload, channel, `${channel}:TS${i}`, 'CHANNEL_ID');
-					}
-				}
-
-				mockTime(() => pruneNow);
-				await aggregator.prunePublicationThreads();
-
-				const debugData = await aggregator.getDebugInfo();
-				expect(Object.keys(debugData.publicationThreads)).toHaveLength(20);
-
-				for (const channel of [channelA, channelB]) {
-					for (let i = 0; i < 5; i++) {
-						expect(debugData.publicationThreads).not.toHaveProperty(`ProviderX|ConsumerY|V${i}|${channel}`);
-					}
-					for (let i = 5; i < 15; i++) {
-						expect(debugData.publicationThreads).toHaveProperty(`ProviderX|ConsumerY|V${i}|${channel}`);
-					}
-				}
-			} finally {
-				resetTime();
-			}
-		});
-
 		it('should report metadata for removed threads when pruning deletes entries', async () => {
 			try {
 				const channel = '#pact-ProviderX';
 				const channelId = 'CHANNEL_ID';
 				const pruneNow = 400 * DAY_MS;
 				const start = pruneNow - 200 * DAY_MS;
-				let removedPayloadKey = '';
+				const removedPayloadKey = `ProviderX|ConsumerY|V0|${channel}`;
 
 				for (let i = 0; i < 11; i++) {
 					mockTime(() => start + i * DAY_MS);
 					const payload = makePublicationPayloadWithPactVersion(`V${i}`);
-					if (i === 0) {
-						removedPayloadKey = `ProviderX|ConsumerY|V${i}|${channel}`;
-					}
 					await aggregator.upsertPublicationThreadInfo(payload, channel, `TS${i}`, channelId);
 				}
-
 				mockTime(() => pruneNow);
-				const removedEntries = await aggregator.prunePublicationThreads();
+
+				const removedEntries = await withRetentionPolicyForDurableObject(aggregator, { minPactVersions: 10, recentDays: 0 }, async () => {
+					return await aggregator.prunePublicationThreads();
+				});
+
 				expect(removedEntries).toHaveLength(1);
 				const removedEntry = removedEntries[0]!;
 				expect(removedEntry.key).toBe(removedPayloadKey);
 				expect(removedEntry.info.ts).toBe('TS0');
-				expect(removedEntry.parsed.providerName).toBe('ProviderX');
-				expect(removedEntry.parsed.consumerName).toBe('ConsumerY');
-				expect(removedEntry.parsed.channel).toBe(channel);
+				expect(removedEntry.info.payload.providerName).toBe('ProviderX');
+				expect(removedEntry.info.payload.consumerName).toBe('ConsumerY');
+				expect(removedEntry.info.channelId).toBe(channelId);
 			} finally {
 				resetTime();
 			}

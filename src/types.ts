@@ -60,25 +60,9 @@ export interface PublicationThreadInfo {
 	// Legacy field kept for backward compatibility (existing stored entries before refactor)
 }
 
-export interface ParsedPublicationThreadKey {
-	providerName: string;
-	consumerName: string;
-	pactVersion: string;
-	channel: string;
-}
-
 export interface PublicationThreadEntry {
 	key: string;
 	info: PublicationThreadInfo;
-	parsed: ParsedPublicationThreadKey;
-	groupKey: string;
-	updatedTime: number;
-}
-
-export interface RemovedPublicationThreadEntry {
-	key: string;
-	info: PublicationThreadInfo;
-	parsed: ParsedPublicationThreadKey;
 }
 
 export interface DebugInfo {

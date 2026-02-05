@@ -1,7 +1,7 @@
 export function pascalCaseToDash(str: string): string {
 	return str
 		.replace(/([A-Z])/g, (g) => `-${g[0].toLowerCase()}`) // Add dash before uppercase letters
-		.replace(/^-/, '');                                   // Remove leading dash if present
+		.replace(/^-/, ''); // Remove leading dash if present
 }
 
 /**
@@ -26,4 +26,20 @@ export function extractPactUrlFromVerificationUrl(verificationResultUrl: string)
 	const match = regex.exec(verificationResultUrl);
 	if (!match) console.error('Invalid verification result URL format: ' + verificationResultUrl);
 	return match ? match[1] : '';
+}
+
+/**
+ * Returns a coerced integer value based on the input, with a fallback and minimum value constraint.
+ *
+ * @param value
+ * @param fallback
+ * @param opts
+ * @returns
+ */
+export function coerceInt(value: unknown, fallback: number, opts: { min: number }): number {
+	const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+	if (!Number.isFinite(n)) return fallback;
+	const i = Math.floor(n);
+	if (i < opts.min) return Math.max(opts.min, fallback);
+	return i;
 }

@@ -4,7 +4,7 @@ import type {
 	PactEventData,
 	StoredPactEventData,
 	DebugInfo,
-	RemovedPublicationThreadEntry,
+	PublicationThreadEntry,
 	ProviderVerificationPublishedPayload,
 } from './types';
 import { getEventDataFromPayload, getProviderSlackChannel } from './payload-utils';
@@ -49,6 +49,11 @@ export default {
 			console.log(`Should process? ${shouldProcessAtCurrentTime(env)}`);
 			await processEventsForPublication(env);
 			return new Response('Processing completed', { status: 200 });
+		}
+
+		if (url.pathname === '/trigger-daily' && url.searchParams.get('key') === env.DEBUG_KEY) {
+			await runDailyMaintenance(env);
+			return new Response('Daily maintenance completed', { status: 200 });
 		}
 
 		if (request.method !== 'POST') {
@@ -105,11 +110,10 @@ async function runDailyMaintenance(env: Env) {
 	// Run retention pruning for publication thread metadata, then attempt a publish.
 	const aggregatorStub = getPactAggregatorStub(env);
 	const removedEntries = await aggregatorStub.prunePublicationThreads();
-	await notifyRemovedPublicationThreads(env, removedEntries);
-	await processEventsForPublication(env);
+	await notifySlackAboutRemovedPactVersions(env, removedEntries);
 }
 
-async function notifyRemovedPublicationThreads(env: Env, removedEntries: RemovedPublicationThreadEntry[]) {
+async function notifySlackAboutRemovedPactVersions(env: Env, removedEntries: PublicationThreadEntry[]) {
 	for (const entry of removedEntries) {
 		const threadTs = entry.info.ts;
 		const channelForThread = entry.info.channelId;

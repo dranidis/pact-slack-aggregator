@@ -2,6 +2,7 @@ import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloud
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import worker from '../src/index';
 import { makeProviderVerificationPayload, makeContractPublicationPayload, expectTimestampToBeRecent } from './test-utilities';
+import { withRetentionPolicyForDurableObject } from './do-env-overrides';
 import {
 	DebugInfo,
 	PactWebhookPayload,
@@ -1187,9 +1188,12 @@ describe('Provider channel messages', () => {
 			}
 
 			mockTime(() => pruneNow);
-			const ctx = createExecutionContext();
-			worker.scheduled({ cron: '0 3 * * *', scheduledTime: pruneNow } as ScheduledEvent, env, ctx);
-			await waitOnExecutionContext(ctx);
+
+			await withRetentionPolicyForDurableObject(aggregatorStub, { minPactVersions: 10, recentDays: 90 }, async () => {
+				const ctx = createExecutionContext();
+				worker.scheduled({ cron: '0 3 * * *', scheduledTime: pruneNow } as ScheduledEvent, env, ctx);
+				await waitOnExecutionContext(ctx);
+			});
 
 			const debugResponse = await debug();
 			expect(debugResponse.status).toBe(200);
