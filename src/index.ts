@@ -78,6 +78,9 @@ export default {
 							deprecated: deprecated.map((e) => ({
 								key: e.key,
 								consumerVersionBranch: e.info.payload.consumerVersionBranch,
+								consumerVersionNumber: e.info.payload.consumerVersionNumber
+									? e.info.payload.consumerVersionNumber.slice(0, 8)
+									: undefined,
 							})),
 						},
 						null,
