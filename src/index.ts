@@ -15,7 +15,7 @@ import {
 	getPublicationSummaryForPayload,
 } from './messages';
 import { postPacticipantEventsToSlack, slackPost, slackUpdate } from './slack';
-import { THREAD_REMOVAL_NOTICE } from './constants';
+import { DEPRECATION_NOTICE, THREAD_REMOVAL_NOTICE } from './constants';
 export { PactAggregator } from './pact-aggregator';
 
 const PUBLISH_CRON = '*/2 * * * *';
@@ -243,8 +243,38 @@ async function createPublicationThread(rawPayload: PactWebhookPayload, env: Env)
 		return;
 	}
 	const threadTs = summaryResp.ts!;
-	await aggregatorStub.upsertPublicationThreadInfo(rawPayload, providerSlackChannel, threadTs, summaryResp.channel!);
+	const removedEntries = await aggregatorStub.upsertPublicationThreadInfo(rawPayload, providerSlackChannel, threadTs, summaryResp.channel!);
+	await notifySlackAboutDeprecatedPactVersions(env, removedEntries);
 	return threadTs;
+}
+
+async function notifySlackAboutDeprecatedPactVersions(env: Env, removedEntries: PublicationThreadEntry[]) {
+	if (removedEntries.length === 0) return;
+
+	for (const entry of removedEntries) {
+		const threadTs = entry.info.ts;
+		const channelForThread = entry.info.channelId;
+
+		await slackPost(
+			{
+				SLACK_CHANNEL: channelForThread,
+				SLACK_TOKEN: env.SLACK_TOKEN,
+			},
+			DEPRECATION_NOTICE,
+			threadTs,
+		);
+
+		const summaryText = getPublicationSummaryForPayload(entry.info.payload, env);
+
+		await slackUpdate(
+			{
+				SLACK_CHANNEL: channelForThread,
+				SLACK_TOKEN: env.SLACK_TOKEN,
+			},
+			threadTs,
+			summaryText + '\n' + DEPRECATION_NOTICE,
+		);
+	}
 }
 
 function shouldProcessAtCurrentTime(env: Env): boolean {

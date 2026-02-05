@@ -939,6 +939,82 @@ describe('Provider channel messages', () => {
 		expect(debugData.publicationThreads).toMatchObject(expectedPublicationThreads);
 	});
 
+	it('should deprecate previous pact thread on same consumer branch when a newer pact is published', async () => {
+		const providerName = 'ProviderChannelService';
+		const consumerName = 'ConsumerChannelClient';
+		const consumerBranch = 'feature/same-branch';
+		const providerChannel = `${env.PROVIDER_CHANNEL_PREFIX}${providerName}`;
+		const oldPactUrl = `https://pact.example.com/pacts/provider/${providerName}/consumer/${consumerName}/pact-version/pact-old`;
+		const newPactUrl = `https://pact.example.com/pacts/provider/${providerName}/consumer/${consumerName}/pact-version/pact-new`;
+
+		const t0 = 1000000000000;
+		mockTime(() => t0);
+		await sendEvent(
+			makeContractPublicationPayload({
+				providerName,
+				consumerName,
+				consumerVersionBranch: consumerBranch,
+				consumerVersionNumber: 'sha-old',
+				pactUrl: oldPactUrl,
+			}),
+		);
+
+		const t1 = t0 + 1000;
+		mockTime(() => t1);
+		await sendEvent(
+			makeContractPublicationPayload({
+				providerName,
+				consumerName,
+				consumerVersionBranch: consumerBranch,
+				consumerVersionNumber: 'sha-new',
+				pactUrl: newPactUrl,
+			}),
+		);
+
+		const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+		const calls = fetchMock.mock.calls;
+
+		// 1st publication: 1 postMessage (summary)
+		// 2nd publication: 1 postMessage (new summary) + 1 postMessage (deprecation notice) + 1 chat.update (old summary)
+		expect(calls.length).toBe(4);
+
+		const [url0, init0] = calls[0] as [string, { body: string }];
+		expect(url0).toContain('slack.com/api/chat.postMessage');
+		const body0 = JSON.parse(init0.body) as SlackPostMessageRequest;
+		expect(body0.channel).toBe(providerChannel);
+
+		const [url1, init1] = calls[1] as [string, { body: string }];
+		expect(url1).toContain('slack.com/api/chat.postMessage');
+		const body1 = JSON.parse(init1.body) as SlackPostMessageRequest;
+		expect(body1.channel).toBe(providerChannel);
+
+		const [url2, init2] = calls[2] as [string, { body: string }];
+		expect(url2).toContain('slack.com/api/chat.postMessage');
+		const body2 = JSON.parse(init2.body) as SlackPostMessageRequest;
+		expect(body2.channel).toBe('CHANNEL_ID');
+		expect(body2.thread_ts).toBe(t0.toString());
+		expect(body2.text).toContain('Deprecated pact');
+		expect(body2.text).toContain('stop receiving updates');
+
+		const [url3, init3] = calls[3] as [string, { body: string }];
+		expect(url3).toContain('slack.com/api/chat.update');
+		const body3 = JSON.parse(init3.body) as SlackUpdateMessageRequest;
+		expect(body3.channel).toBe('CHANNEL_ID');
+		expect(body3.ts).toBe(t0.toString());
+		expect(body3.text).toContain('Deprecated pact');
+		expect(body3.text).toContain('stop receiving updates');
+
+		const debugResponse = await debug();
+		expect(debugResponse.status).toBe(200);
+		const debugData: DebugInfo = await debugResponse.json();
+		expect(debugData.publicationThreads).not.toHaveProperty(
+			`${providerName}|${consumerName}|pact-old|${env.PROVIDER_CHANNEL_PREFIX}${providerName}`,
+		);
+		expect(debugData.publicationThreads).toHaveProperty(
+			`${providerName}|${consumerName}|pact-new|${env.PROVIDER_CHANNEL_PREFIX}${providerName}`,
+		);
+	});
+
 	it('should post a publication summary and a verification thread reply to the provider-specific channel when a verification happens with no previous publication', async () => {
 		// Arrange: create a contract publication payload with distinct provider
 		const publicationPayload = makeProviderVerificationPayload({
@@ -1182,6 +1258,7 @@ describe('Provider channel messages', () => {
 				const payload = makeContractPublicationPayload({
 					providerName: 'ProviderX',
 					consumerName: 'ConsumerY',
+					consumerVersionBranch: `branch-${i}`,
 					pactUrl: `https://example.com/pact-version/V${i}`,
 				});
 				await aggregatorStub.upsertPublicationThreadInfo(payload, channel, `TS${i}`, 'CHANNEL_ID');

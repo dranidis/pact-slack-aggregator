@@ -9,6 +9,7 @@ import type {
 	PactWebhookPayload,
 } from './types';
 import { getPactVersionFromPayload } from './payload-utils';
+import { CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from './constants';
 import { DAY_MS } from './constants';
 import { coerceInt } from './utils';
 
@@ -188,11 +189,34 @@ export class PactAggregator extends DurableObject<Env> {
 	/**
 	 * Store the Slack thread timestamp for a publication event in a dictionary under 'publicationThreads'
 	 */
-	async upsertPublicationThreadInfo(pub: PactWebhookPayload, channel: string, threadTs: string, channelId: string): Promise<void> {
+	async upsertPublicationThreadInfo(
+		pub: PactWebhookPayload,
+		channel: string,
+		threadTs: string,
+		channelId: string,
+	): Promise<PublicationThreadEntry[]> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads = await this.getAllPublicationThreads();
-		// Remove any other entries with same provider|consumer|branch (regardless of pact version or channel)
-		// We only keep the most recent publication thread metadata for that trio.
+
+		const removed: PublicationThreadEntry[] = [];
+		if (pub.eventType === CONTRACT_REQUIRING_VERIFICATION_PUBLISHED) {
+			const newerPactVersion = getPactVersionFromPayload(pub);
+			for (const [existingKey, info] of Object.entries(threads)) {
+				if (!info) continue;
+				if (existingKey === key) continue;
+				if (!existingKey.endsWith(`|${channel}`)) continue;
+				if (info.payload.providerName !== pub.providerName) continue;
+				if (info.payload.consumerName !== pub.consumerName) continue;
+				if (info.payload.consumerVersionBranch !== pub.consumerVersionBranch) continue;
+
+				const existingPactVersion = getPactVersionFromPayload(info.payload);
+				if (!existingPactVersion || !newerPactVersion) continue;
+				if (existingPactVersion === newerPactVersion) continue;
+
+				removed.push({ key: existingKey, info });
+				delete threads[existingKey];
+			}
+		}
 
 		const existing = threads[key];
 		threads[key] = {
@@ -203,6 +227,7 @@ export class PactAggregator extends DurableObject<Env> {
 			createdTs: existing?.createdTs ?? now().toString(),
 		};
 		await this.ctx.storage.put('publicationThreads', threads);
+		return removed;
 	}
 	/**
 	 * Returns the Slack thread timestamp ID for a given pact event and channel, if it exists.
@@ -437,6 +462,7 @@ export class PactAggregator extends DurableObject<Env> {
 		const threads: Record<string, PublicationThreadInfo | undefined> = (await this.ctx.storage.get('publicationThreads')) ?? {};
 		return threads;
 	}
+
 
 	private getThreadUpdatedTime(info: PublicationThreadInfo): number {
 		const candidate = info.updatedTs;
