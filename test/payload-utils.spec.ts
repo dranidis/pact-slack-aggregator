@@ -1,14 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { getEventDataFromPayload, getProviderSlackChannel } from '../src/payload-utils';
-import {
-	PROVIDER_VERIFICATION_PUBLISHED,
-	CONTRACT_REQUIRING_VERIFICATION_PUBLISHED
-} from '../src/constants';
+import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from '../src/constants';
 import type {
 	ProviderVerificationPublishedPayload,
 	ContractRequiringVerificationPublishedPayload,
 	ProviderVerificationEventData,
-	ContractRequiringVerificationEventData
+	ContractRequiringVerificationEventData,
 } from '../src/types';
 
 describe('payload-utils', () => {
@@ -24,7 +21,7 @@ describe('payload-utils', () => {
 					consumerVersionBranch: 'feature/new-api',
 					providerVersionBranch: 'main',
 					consumerVersionNumber: 'abc123',
-					providerVersionNumber: 'def456'
+					providerVersionNumber: 'def456',
 				};
 
 				const result: ProviderVerificationEventData = getEventDataFromPayload(payload) as ProviderVerificationEventData;
@@ -37,7 +34,7 @@ describe('payload-utils', () => {
 
 				// All original payload properties should be preserved
 				const originalKeys = Object.keys(payload);
-				originalKeys.forEach(key => {
+				originalKeys.forEach((key) => {
 					expect(result).toHaveProperty(key, payload[key as keyof typeof payload]);
 				});
 			});
@@ -54,7 +51,7 @@ describe('payload-utils', () => {
 					providerVersionBranch: 'main',
 					consumerVersionNumber: 'abc123',
 					providerVersionNumber: 'def456',
-					providerVersionDescriptions: 'Latest from main branch'
+					providerVersionDescriptions: 'Latest from main branch',
 				};
 
 				const result: ContractRequiringVerificationEventData = getEventDataFromPayload(payload) as ContractRequiringVerificationEventData;
@@ -67,7 +64,7 @@ describe('payload-utils', () => {
 
 				// All original payload properties should be preserved
 				const originalKeys = Object.keys(payload);
-				originalKeys.forEach(key => {
+				originalKeys.forEach((key) => {
 					expect(result).toHaveProperty(key, payload[key as keyof typeof payload]);
 				});
 			});
@@ -75,19 +72,27 @@ describe('payload-utils', () => {
 	});
 
 	describe('getProviderSlackChannel', () => {
+		const payload: ProviderVerificationPublishedPayload = {
+			eventType: PROVIDER_VERIFICATION_PUBLISHED,
+			providerName: 'UserService',
+			consumerName: 'OrderService',
+			verificationResultUrl: 'https://pact.example.com/verification-results/456',
+			githubVerificationStatus: 'success',
+			consumerVersionBranch: 'feature/x',
+			providerVersionBranch: 'main',
+			consumerVersionNumber: '1.2.3',
+			providerVersionNumber: '4.5.6',
+		};
 		it('builds channel name using configured prefix (adding # if missing)', () => {
 			const env = { PROVIDER_CHANNEL_PREFIX: 'ci-' } as unknown as Env; // prefix without # to test normalization
-			const payload: ProviderVerificationPublishedPayload = {
-				eventType: PROVIDER_VERIFICATION_PUBLISHED,
-				providerName: 'UserService',
-				consumerName: 'OrderService',
-				verificationResultUrl: 'https://pact.example.com/verification-results/456',
-				githubVerificationStatus: 'success',
-				consumerVersionBranch: 'feature/x',
-				providerVersionBranch: 'main',
-				consumerVersionNumber: '1.2.3',
-				providerVersionNumber: '4.5.6'
-			};
+
+			const channel = getProviderSlackChannel(env, payload);
+			expect(channel).toBe('#ci-UserService');
+		});
+
+		it('builds channel name using configured prefix', () => {
+			const env = { PROVIDER_CHANNEL_PREFIX: '#ci-' } as unknown as Env; // prefix without # to test normalization
+
 			const channel = getProviderSlackChannel(env, payload);
 			expect(channel).toBe('#ci-UserService');
 		});

@@ -13,7 +13,7 @@
 - **Secrets/config**:
   - Copy `.env.example` → `.env` and fill `SLACK_TOKEN`, `DEBUG_KEY`. Always run `wrangler types` after changing env vars so `worker-configuration.d.ts` stays current.
   - Copy wrangler templates → `wrangler.dev.jsonc` and `wrangler.prod.jsonc`, fill non-secret vars (channel names, GitHub base URL, etc.). Prod file stays gitignored.
-  - Durable Object binding name must match `PACT_AGGREGATOR` in configs; leave cron schedule at `*/2 * * * *` unless you know why to change it.
+  - Durable Object binding name must match `PACT_AGGREGATOR` in configs; cron schedules are `*/2 * * * *` (publish cadence, time-gated in code) plus `0 3 * * *` (daily maintenance/out-of-hours).
 
 ## Commands & Validation
 
@@ -69,6 +69,26 @@ _All commands run from repo root unless stated. Times recorded on a Linux devcon
 - Sample cURL to trigger processing locally: `curl "http://localhost:$DEV_PORT/trigger?key=$DEBUG_KEY"` while `npm run dev` is running.
 - When adding environment variables, update `.env.example`, both wrangler templates, and regenerate types.
 
+## DRY & YAGNI guardrails
+
+- **DRY (Don't Repeat Yourself)**: keep every change tightly focused, reuse existing helpers instead of cloning logic, and expose the smallest possible surface (e.g., funnel all message-formatting dependencies through a single builder rather than sprinkling raw `env` usage everywhere).
+- **YAGNI (You Aren't Gonna Need It)**: do not add APIs, storage fields, or configuration flags until production code actively depends on them. Remove deprecated helpers once the last call site disappears—tests should cover real usage, not keep dead code alive.
+- When reviewing or implementing features, explicitly call out violations (duplicate Slack-posting flows, unused Durable Object methods, speculative env vars) and either delete them or open cleanup tasks before merging.
+
 ## Final Guidance
 
 Trust these instructions for future tasks; only search the codebase when information here is missing or proven incorrect.
+
+This is EXTREMELY IMPORTANT:
+
+- For every prompt I give, ask yourself explicitly "Does the prompt make sense given the current codebase and my general knowledge in the field?". If not, ask for clarifications BEFORE proceeding to any actions.
+- Don't flatter me. Be charming and nice, but very honest. Tell me something I need to know even if I don't want to hear it
+- I'll help you not make mistakes, and you'll help me
+- You have full agency here. Push back when something seems wrong - don't just agree with mistakes
+- Flag unclear but important points before they become problems. Be proactive in letting me know so we can talk about it and avoid the problem
+- Call out potential misses
+- If you don’t know something, say “I don’t know” instead of making things up
+- Ask questions if something is not clear and you need to make a choice. Don't choose randomly if it's important for what we're doing
+- When you show me a potential error or miss, start your response with❗️emoji
+- Tell me what you're going to do before you do it. Show me your plan starting with 📋 emoji
+- **ALWAYS** start replies with STARTER_CHARACTER + space (default: 🍀). Stack emojis when requested, don't replace.

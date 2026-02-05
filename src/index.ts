@@ -1,5 +1,12 @@
 import { now } from './time-utils';
-import type { PactWebhookPayload, PactEventData, StoredPactEventData, DebugInfo } from './types';
+import type {
+	PactWebhookPayload,
+	PactEventData,
+	StoredPactEventData,
+	DebugInfo,
+	PublicationThreadEntry,
+	ProviderVerificationPublishedPayload,
+} from './types';
 import { getEventDataFromPayload, getProviderSlackChannel } from './payload-utils';
 import {
 	createSummaryAndDetailsMessages,
@@ -8,7 +15,11 @@ import {
 	getPublicationSummaryForPayload,
 } from './messages';
 import { postPacticipantEventsToSlack, slackPost, slackUpdate } from './slack';
+import { THREAD_REMOVAL_NOTICE } from './constants';
 export { PactAggregator } from './pact-aggregator';
+
+const PUBLISH_CRON = '*/2 * * * *';
+const DAILY_MAINTENANCE_CRON = '0 3 * * *';
 
 export default {
 	async fetch(request: Request, env: Env) {
@@ -40,6 +51,11 @@ export default {
 			return new Response('Processing completed', { status: 200 });
 		}
 
+		if (url.pathname === '/trigger-daily' && url.searchParams.get('key') === env.DEBUG_KEY) {
+			await runDailyMaintenance(env);
+			return new Response('Daily maintenance completed', { status: 200 });
+		}
+
 		if (request.method !== 'POST') {
 			return new Response('Method Not Allowed', { status: 405 });
 		}
@@ -69,11 +85,60 @@ export default {
 
 	// Runs automatically (Cloudflare Cron). Schedule defined in wrangler.jsonc
 	scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+		if (event.cron === DAILY_MAINTENANCE_CRON) {
+			ctx.waitUntil(runDailyMaintenance(env));
+			return;
+		}
+
+		// Default: publish cron (frequent) gated by local working-hours rules.
+		// If Cloudflare ever calls us with an unexpected cron string, fall back to the gated path.
+		if (event.cron === PUBLISH_CRON || !event.cron) {
+			if (shouldProcessAtCurrentTime(env)) {
+				ctx.waitUntil(processEventsForPublication(env));
+			}
+			return;
+		}
+
 		if (shouldProcessAtCurrentTime(env)) {
 			ctx.waitUntil(processEventsForPublication(env));
 		}
 	},
 };
+
+async function runDailyMaintenance(env: Env) {
+	// Daily cron runs under the longer Scheduled Worker limit (15 min for intervals >= 1 hour).
+	// Run retention pruning for publication thread metadata, then attempt a publish.
+	const aggregatorStub = getPactAggregatorStub(env);
+	const removedEntries = await aggregatorStub.prunePublicationThreads();
+	await notifySlackAboutRemovedPactVersions(env, removedEntries);
+}
+
+async function notifySlackAboutRemovedPactVersions(env: Env, removedEntries: PublicationThreadEntry[]) {
+	for (const entry of removedEntries) {
+		const threadTs = entry.info.ts;
+		const channelForThread = entry.info.channelId;
+
+		await slackPost(
+			{
+				SLACK_CHANNEL: channelForThread,
+				SLACK_TOKEN: env.SLACK_TOKEN,
+			},
+			THREAD_REMOVAL_NOTICE,
+			threadTs,
+		);
+
+		const summaryText = getPublicationSummaryForPayload(entry.info.payload, env);
+
+		await slackUpdate(
+			{
+				SLACK_CHANNEL: channelForThread,
+				SLACK_TOKEN: env.SLACK_TOKEN,
+			},
+			threadTs,
+			summaryText + '\n' + THREAD_REMOVAL_NOTICE,
+		);
+	}
+}
 
 async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) {
 	const aggregatorStub = getPactAggregatorStub(env);
@@ -81,9 +146,11 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 
 	let threadTs = await aggregatorStub.getPublicationThreadTs(rawPayload, providerSlackChannel);
 
-	// a publication event will always have a new pact and the thread will not exist yet
-	// a verification event may or may not have an existing thread for its pact
-	threadTs ??= await publishProviderSummaryToSlack(rawPayload, env);
+	// A publication event will always have a new pact and the thread will not exist yet!
+	// A verification event may or may not have an existing thread for its pact
+	//
+	// If the thread timestamp ID does not exist yet, create it by posting the summary
+	threadTs ??= await createPublicationThread(rawPayload, env);
 
 	if (!threadTs) {
 		console.error('Failed to obtain thread timestamp for provider channel post');
@@ -97,26 +164,7 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 
 		// If provider branch is master, update original summary instead of posting thread detail
 		if (ver.providerVersionBranch === 'master') {
-			const originalPayload = (await aggregatorStub.getPublicationPayload(ver, providerSlackChannel)) ?? undefined;
-			const originalSummary = originalPayload ? getPublicationSummaryForPayload(originalPayload, env) : '';
-			const updatedSummary = appendVerificationStatusToProviderPublicationSummary(
-				originalSummary || `Verification results for *${ver.consumerName}*`,
-				ver,
-				env,
-			);
-			const channelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
-			if (!channelId) {
-				console.error('Missing channel ID for update! ');
-			} else {
-				await slackUpdate(
-					{
-						SLACK_CHANNEL: channelId,
-						SLACK_TOKEN: env.SLACK_TOKEN,
-					},
-					threadTs,
-					updatedSummary,
-				);
-			}
+			await updateProviderThreadSummaryForMasterBranch(ver, providerSlackChannel, env, threadTs);
 		}
 
 		const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
@@ -134,7 +182,50 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 	}
 }
 
-async function publishProviderSummaryToSlack(rawPayload: PactWebhookPayload, env: Env) {
+/**
+ * Updates the provider channel summary message in place when a master-branch verification completes.
+ * Fetches the original publication payload to rebuild the summary, appends verification status, and updates Slack.
+ */
+async function updateProviderThreadSummaryForMasterBranch(
+	ver: ProviderVerificationPublishedPayload,
+	providerSlackChannel: string,
+	env: Env,
+	threadTs: string,
+) {
+	const aggregatorStub = getPactAggregatorStub(env);
+
+	const originalPayload = (await aggregatorStub.getPublicationPayload(ver, providerSlackChannel)) ?? undefined;
+	const originalSummary = originalPayload ? getPublicationSummaryForPayload(originalPayload, env) : '';
+	const updatedSummary = appendVerificationStatusToProviderPublicationSummary(
+		originalSummary || `Verification results for *${ver.consumerName}*`,
+		ver,
+		env,
+	);
+	const channelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
+	if (!channelId) {
+		console.error('Missing channel ID for update! ');
+	} else {
+		await slackUpdate(
+			{
+				SLACK_CHANNEL: channelId,
+				SLACK_TOKEN: env.SLACK_TOKEN,
+			},
+			threadTs,
+			updatedSummary,
+		);
+	}
+}
+
+/**
+ * Publishes the summary message for a pact publication to the provider's Slack channel.
+ * Creates a new  (or updates an existing) thread info for the publication.
+ * Returns the thread timestamp ID of the message posted.
+ *
+ * @param rawPayload
+ * @param env
+ * @returns {Promise<string | undefined>}
+ */
+async function createPublicationThread(rawPayload: PactWebhookPayload, env: Env): Promise<string | undefined> {
 	const aggregatorStub = getPactAggregatorStub(env);
 	const providerSlackChannel = getProviderSlackChannel(env, rawPayload);
 
@@ -152,7 +243,7 @@ async function publishProviderSummaryToSlack(rawPayload: PactWebhookPayload, env
 		return;
 	}
 	const threadTs = summaryResp.ts!;
-	await aggregatorStub.setPublicationThreadTs(rawPayload, providerSlackChannel, threadTs, summaryResp.channel);
+	await aggregatorStub.upsertPublicationThreadInfo(rawPayload, providerSlackChannel, threadTs, summaryResp.channel!);
 	return threadTs;
 }
 

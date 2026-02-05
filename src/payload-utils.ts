@@ -18,6 +18,16 @@ export function getPactVersionFromPayload(pub: PactWebhookPayload) {
 	return match ? match[1] : undefined;
 }
 
+/**
+ * Returns the Slack channel name for the payload passed.
+ * The name is built using the PROVIDER_CHANNEL_PREFIX environment variable and the provider name from the payload.
+ *
+ * e.g. if the prefix is '#pact-' and the provider name is 'UserService', the resulting channel name will be '#pact-UserService'.
+ *
+ * @param env
+ * @param rawPayload
+ * @returns
+ */
 export function getProviderSlackChannel(env: Env, rawPayload: PactWebhookPayload) {
 	const basePrefix = env.PROVIDER_CHANNEL_PREFIX ?? '#pact-';
 	const normalizedPrefix = basePrefix.startsWith('#') ? basePrefix : `#${basePrefix}`;

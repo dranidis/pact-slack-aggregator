@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { mockTime, now } from '../src/time-utils';
+import { mockTime, now, resetTime } from '../src/time-utils';
 import {
 	expectTimestampToBeRecent,
 	createUniqueTestId,
@@ -9,7 +9,9 @@ import {
 	makeContractPublicationPayload,
 	makeProviderVerificationPayload,
 } from './test-utilities';
+import { withRetentionPolicyForDurableObject } from './do-env-overrides';
 import { PactAggregator } from '../src';
+import { DAY_MS } from '../src/constants';
 
 describe('PactAggregator', () => {
 	let aggregator: DurableObjectStub<PactAggregator>;
@@ -46,10 +48,10 @@ describe('PactAggregator', () => {
 
 			const eventBucketsArray = Object.values(debugData.eventBuckets);
 			expect(eventBucketsArray).toHaveLength(1);
-			expect(eventBucketsArray[0].count).toBe(1);
-			expect(eventBucketsArray[0].events).toBeDefined();
+			expect(eventBucketsArray[0]!.count).toBe(1);
+			expect(eventBucketsArray[0]!.events).toBeDefined();
 
-			const storedEvent = eventBucketsArray[0].events[0];
+			const storedEvent = eventBucketsArray[0]!.events[0];
 			expect(storedEvent).toMatchObject(testEvent);
 		});
 
@@ -76,7 +78,7 @@ describe('PactAggregator', () => {
 			// Should have one bucket with two events
 			const eventBucketsArray = Object.values(debugData.eventBuckets);
 			expect(eventBucketsArray).toHaveLength(1);
-			expect(eventBucketsArray[0].count).toBe(2);
+			expect(eventBucketsArray[0]!.count).toBe(2);
 		});
 	});
 
@@ -175,7 +177,7 @@ describe('PactAggregator', () => {
 
 			const buckets = Object.values(debugData.eventBuckets);
 			expect(buckets).toHaveLength(1); // Only current bucket remains
-			expect(buckets[0].count).toBe(2); // Both events in same bucket
+			expect(buckets[0]!.count).toBe(2); // Both events in same bucket
 		});
 
 		it('should handle events from previous bucket that are within quiet period', async () => {
@@ -367,7 +369,7 @@ describe('PactAggregator', () => {
 			});
 
 			// Add a publication event
-			await aggregator.setPublicationThreadTs(pub, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`, 'thread123');
+			await aggregator.upsertPublicationThreadInfo(pub, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`, 'thread123', 'CHANNEL_ID_ABC');
 
 			// Get debug info
 			const debugInfo = await aggregator.getDebugInfo();
@@ -385,6 +387,118 @@ describe('PactAggregator', () => {
 
 			const threadTs = await aggregator.getPublicationThreadTs(ver, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`);
 			expect(threadTs).toBeDefined();
+		});
+	});
+
+	describe('prunePublicationThreads', () => {
+		function makePublicationPayloadWithPactVersion(pactVersion: string) {
+			return makeContractPublicationPayload({
+				providerName: 'ProviderX',
+				consumerName: 'ConsumerY',
+				pactUrl: `https://example.com/pact-version/${pactVersion}`,
+			});
+		}
+
+		it('should delete old threads beyond newest 10 per provider/consumer/channel', async () => {
+			try {
+				const channel = '#pact-ProviderX';
+				const pruneNow = 200 * DAY_MS;
+				const start = pruneNow - 120 * DAY_MS;
+
+				for (let i = 0; i < 15; i++) {
+					mockTime(() => start + i * DAY_MS);
+					const payload = makePublicationPayloadWithPactVersion(`V${i}`);
+					await aggregator.upsertPublicationThreadInfo(payload, channel, `TS${i}`, 'CHANNEL_ID');
+				}
+
+				mockTime(() => pruneNow);
+
+				await withRetentionPolicyForDurableObject(aggregator, { minPactVersions: 10, recentDays: 0 }, async () => {
+					await aggregator.prunePublicationThreads();
+				});
+
+				const debugData = await aggregator.getDebugInfo();
+				expect(Object.keys(debugData.publicationThreads)).toHaveLength(10);
+
+				for (let i = 0; i < 5; i++) {
+					expect(debugData.publicationThreads).not.toHaveProperty(`ProviderX|ConsumerY|V${i}|${channel}`);
+				}
+				for (let i = 5; i < 15; i++) {
+					expect(debugData.publicationThreads).toHaveProperty(`ProviderX|ConsumerY|V${i}|${channel}`);
+				}
+			} finally {
+				resetTime();
+			}
+		});
+
+		it('should retain all threads updated within 3 months (even beyond newest 10)', async () => {
+			try {
+				const channel = '#pact-ProviderX';
+				const pruneNow = 200 * DAY_MS;
+				const oldStart = pruneNow - 120 * DAY_MS;
+				const recentStart = pruneNow - 30 * DAY_MS;
+
+				for (let i = 0; i < 3; i++) {
+					mockTime(() => oldStart + i * DAY_MS);
+					const payload = makePublicationPayloadWithPactVersion(`OLD${i}`);
+					await aggregator.upsertPublicationThreadInfo(payload, channel, `TS_OLD${i}`, 'CHANNEL_ID');
+				}
+
+				for (let i = 0; i < 12; i++) {
+					mockTime(() => recentStart + i * DAY_MS);
+					const payload = makePublicationPayloadWithPactVersion(`RECENT${i}`);
+					await aggregator.upsertPublicationThreadInfo(payload, channel, `TS_RECENT${i}`, 'CHANNEL_ID');
+				}
+
+				mockTime(() => pruneNow);
+
+				await withRetentionPolicyForDurableObject(aggregator, { minPactVersions: 10, recentDays: 90 }, async () => {
+					await aggregator.prunePublicationThreads();
+				});
+
+				const debugData = await aggregator.getDebugInfo();
+				expect(Object.keys(debugData.publicationThreads)).toHaveLength(12);
+
+				for (let i = 0; i < 3; i++) {
+					expect(debugData.publicationThreads).not.toHaveProperty(`ProviderX|ConsumerY|OLD${i}|${channel}`);
+				}
+				for (let i = 0; i < 12; i++) {
+					expect(debugData.publicationThreads).toHaveProperty(`ProviderX|ConsumerY|RECENT${i}|${channel}`);
+				}
+			} finally {
+				resetTime();
+			}
+		});
+
+		it('should report metadata for removed threads when pruning deletes entries', async () => {
+			try {
+				const channel = '#pact-ProviderX';
+				const channelId = 'CHANNEL_ID';
+				const pruneNow = 400 * DAY_MS;
+				const start = pruneNow - 200 * DAY_MS;
+				const removedPayloadKey = `ProviderX|ConsumerY|V0|${channel}`;
+
+				for (let i = 0; i < 11; i++) {
+					mockTime(() => start + i * DAY_MS);
+					const payload = makePublicationPayloadWithPactVersion(`V${i}`);
+					await aggregator.upsertPublicationThreadInfo(payload, channel, `TS${i}`, channelId);
+				}
+				mockTime(() => pruneNow);
+
+				const removedEntries = await withRetentionPolicyForDurableObject(aggregator, { minPactVersions: 10, recentDays: 0 }, async () => {
+					return await aggregator.prunePublicationThreads();
+				});
+
+				expect(removedEntries).toHaveLength(1);
+				const removedEntry = removedEntries[0]!;
+				expect(removedEntry.key).toBe(removedPayloadKey);
+				expect(removedEntry.info.ts).toBe('TS0');
+				expect(removedEntry.info.payload.providerName).toBe('ProviderX');
+				expect(removedEntry.info.payload.consumerName).toBe('ConsumerY');
+				expect(removedEntry.info.channelId).toBe(channelId);
+			} finally {
+				resetTime();
+			}
 		});
 	});
 });

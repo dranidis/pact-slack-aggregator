@@ -8,7 +8,7 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-09-06",
 	"observability": {
-		"enabled": true
+		"enabled": true,
 	},
 	"vars": {
 		"SLACK_CHANNEL": "#your-dev-channel",
@@ -19,25 +19,27 @@
 		"QUIET_PERIOD_MS": 10000,
 		"MINUTE_BUCKET_MS": 60000,
 		"MAX_TIME_BEFORE_FLUSHING": 300000,
+		"RETENTION_RECENT_DAYS": 90,
+		"RETENTION_MIN_PACT_VERSIONS": 10,
 		"PACT_AGGREGATOR_NAME": "pact-events",
 		"SUCCESS_EMOJI": "✅",
-		"FAILURE_EMOJI": "😢"
+		"FAILURE_EMOJI": "😢",
 	},
 	"durable_objects": {
 		"bindings": [
 			{
 				"name": "PACT_AGGREGATOR",
-				"class_name": "PactAggregator"
-			}
-		]
+				"class_name": "PactAggregator",
+			},
+		],
 	},
 	"triggers": {
-		"crons": ["*/2 * * * *"]
+		"crons": ["*/2 * * * *", "0 3 * * *"],
 	},
 	"migrations": [
 		{
 			"tag": "v1",
-			"new_sqlite_classes": ["PactAggregator"]
-		}
-	]
+			"new_sqlite_classes": ["PactAggregator"],
+		},
+	],
 }
