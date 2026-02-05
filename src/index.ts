@@ -45,13 +45,70 @@ export default {
 		}
 
 		// Manual trigger endpoint
-		if (url.pathname === '/trigger' && url.searchParams.get('key') === env.DEBUG_KEY) {
+		if (url.pathname === '/trigger') {
+			if (url.searchParams.get('key') !== env.DEBUG_KEY) {
+				return new Response('Unauthorized', { status: 401 });
+			}
 			console.log(`Should process? ${shouldProcessAtCurrentTime(env)}`);
 			await processEventsForPublication(env);
 			return new Response('Processing completed', { status: 200 });
 		}
 
-		if (url.pathname === '/trigger-daily' && url.searchParams.get('key') === env.DEBUG_KEY) {
+		if (url.pathname === '/trigger-deprecate') {
+			if (url.searchParams.get('key') !== env.DEBUG_KEY) {
+				return new Response('Unauthorized', { status: 401 });
+			}
+			const apply = url.searchParams.get('apply') === 'true';
+			const limitParam = url.searchParams.get('limit');
+			const limit = limitParam ? Number(limitParam) : undefined;
+			if (limitParam && (!Number.isFinite(limit) || (limit ?? 0) <= 0)) {
+				return new Response('Invalid limit', { status: 400 });
+			}
+			if (apply && !limitParam) {
+				return new Response('limit is required when apply=true', { status: 400 });
+			}
+
+			const deprecated = await aggregatorStub.findDeprecatedPublicationThreads(limit);
+			if (!apply) {
+				return new Response(
+					JSON.stringify(
+						{
+							apply: false,
+							deprecatedCount: deprecated.length,
+							deprecated: deprecated.map((e) => ({
+								key: e.key,
+								consumerVersionBranch: e.info.payload.consumerVersionBranch,
+							})),
+						},
+						null,
+						2,
+					),
+					{ headers: { 'Content-Type': 'application/json' } },
+				);
+			}
+
+			const { removedKeys, slackFailures } = await notifySlackAboutDeprecatedThreadEntries(env, deprecated);
+			const removedCount = await aggregatorStub.removePublicationThreadKeys(removedKeys);
+			return new Response(
+				JSON.stringify(
+					{
+						apply: true,
+						deprecatedCount: deprecated.length,
+						slackFailures,
+						removedCount,
+						removedKeys,
+					},
+					null,
+					2,
+				),
+				{ headers: { 'Content-Type': 'application/json' } },
+			);
+		}
+
+		if (url.pathname === '/trigger-daily') {
+			if (url.searchParams.get('key') !== env.DEBUG_KEY) {
+				return new Response('Unauthorized', { status: 401 });
+			}
 			await runDailyMaintenance(env);
 			return new Response('Daily maintenance completed', { status: 200 });
 		}
@@ -243,38 +300,63 @@ async function createPublicationThread(rawPayload: PactWebhookPayload, env: Env)
 		return;
 	}
 	const threadTs = summaryResp.ts!;
-	const removedEntries = await aggregatorStub.upsertPublicationThreadInfo(rawPayload, providerSlackChannel, threadTs, summaryResp.channel!);
-	await notifySlackAboutDeprecatedPactVersions(env, removedEntries);
+	const deprecatedCandidates = await aggregatorStub.upsertPublicationThreadInfo(
+		rawPayload,
+		providerSlackChannel,
+		threadTs,
+		summaryResp.channel!,
+	);
+	const { removedKeys } = await notifySlackAboutDeprecatedThreadEntries(env, deprecatedCandidates);
+	await aggregatorStub.removePublicationThreadKeys(removedKeys);
 	return threadTs;
 }
 
-async function notifySlackAboutDeprecatedPactVersions(env: Env, removedEntries: PublicationThreadEntry[]) {
-	if (removedEntries.length === 0) return;
-
-	for (const entry of removedEntries) {
+async function notifySlackAboutDeprecatedThreadEntries(env: Env, entries: PublicationThreadEntry[]) {
+	const removedKeys: string[] = [];
+	const slackFailures: { key: string; error: string }[] = [];
+	for (const entry of entries) {
 		const threadTs = entry.info.ts;
 		const channelForThread = entry.info.channelId;
-
-		await slackPost(
-			{
-				SLACK_CHANNEL: channelForThread,
-				SLACK_TOKEN: env.SLACK_TOKEN,
-			},
-			DEPRECATION_NOTICE,
-			threadTs,
-		);
-
+		const notice = DEPRECATION_NOTICE;
 		const summaryText = getPublicationSummaryForPayload(entry.info.payload, env);
 
-		await slackUpdate(
-			{
-				SLACK_CHANNEL: channelForThread,
-				SLACK_TOKEN: env.SLACK_TOKEN,
-			},
-			threadTs,
-			summaryText + '\n' + DEPRECATION_NOTICE,
-		);
+		if (!threadTs || !channelForThread) {
+			slackFailures.push({ key: entry.key, error: 'missing_thread_metadata' });
+			continue;
+		}
+
+		try {
+			const postResp = await slackPost(
+				{
+					SLACK_CHANNEL: channelForThread,
+					SLACK_TOKEN: env.SLACK_TOKEN,
+				},
+				notice,
+				threadTs,
+			);
+
+			const updateResp = await slackUpdate(
+				{
+					SLACK_CHANNEL: channelForThread,
+					SLACK_TOKEN: env.SLACK_TOKEN,
+				},
+				threadTs,
+				summaryText + '\n' + notice,
+			);
+
+			if (!postResp.ok || !updateResp.ok) {
+				slackFailures.push({
+					key: entry.key,
+					error: postResp.ok ? (updateResp.error ?? 'update_failed') : (postResp.error ?? 'post_failed'),
+				});
+				continue;
+			}
+			removedKeys.push(entry.key);
+		} catch (err) {
+			slackFailures.push({ key: entry.key, error: err instanceof Error ? err.message : 'unknown_error' });
+		}
 	}
+	return { removedKeys, slackFailures };
 }
 
 function shouldProcessAtCurrentTime(env: Env): boolean {

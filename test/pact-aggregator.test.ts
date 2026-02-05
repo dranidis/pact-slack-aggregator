@@ -389,7 +389,7 @@ describe('PactAggregator', () => {
 			expect(threadTs).toBeDefined();
 		});
 
-		it('should remove older pact versions for same consumer branch and report removed entries', async () => {
+		it('should identify older pact versions for same consumer branch and report deprecated candidates', async () => {
 			const channel = `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`;
 			const channelId = 'CHANNEL_ID_ABC';
 
@@ -416,8 +416,13 @@ describe('PactAggregator', () => {
 			expect(removed[0]!.info.ts).toBe('TS_V1');
 
 			const debugInfo = await aggregator.getDebugInfo();
-			expect(debugInfo.publicationThreads).not.toHaveProperty(`API|UI|pact-v1|${channel}`);
+			// Two-phase: upsert does not delete; caller deletes after Slack succeeds.
+			expect(debugInfo.publicationThreads).toHaveProperty(`API|UI|pact-v1|${channel}`);
 			expect(debugInfo.publicationThreads).toHaveProperty(`API|UI|pact-v2|${channel}`);
+
+			await aggregator.removePublicationThreadKeys([`API|UI|pact-v1|${channel}`]);
+			const debugInfoAfter = await aggregator.getDebugInfo();
+			expect(debugInfoAfter.publicationThreads).not.toHaveProperty(`API|UI|pact-v1|${channel}`);
 		});
 	});
 

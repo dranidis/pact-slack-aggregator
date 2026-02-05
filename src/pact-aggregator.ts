@@ -198,7 +198,11 @@ export class PactAggregator extends DurableObject<Env> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads = await this.getAllPublicationThreads();
 
-		const removed: PublicationThreadEntry[] = [];
+		// Two-phase deprecation:
+		// 1) identify deprecated candidates,
+		// 2) caller updates Slack,
+		// 3) caller deletes via removePublicationThreadKeys() only if Slack succeeded.
+		const deprecatedCandidates: PublicationThreadEntry[] = [];
 		if (pub.eventType === CONTRACT_REQUIRING_VERIFICATION_PUBLISHED) {
 			const newerPactVersion = getPactVersionFromPayload(pub);
 			for (const [existingKey, info] of Object.entries(threads)) {
@@ -213,8 +217,7 @@ export class PactAggregator extends DurableObject<Env> {
 				if (!existingPactVersion || !newerPactVersion) continue;
 				if (existingPactVersion === newerPactVersion) continue;
 
-				removed.push({ key: existingKey, info });
-				delete threads[existingKey];
+				deprecatedCandidates.push({ key: existingKey, info });
 			}
 		}
 
@@ -227,7 +230,7 @@ export class PactAggregator extends DurableObject<Env> {
 			createdTs: existing?.createdTs ?? now().toString(),
 		};
 		await this.ctx.storage.put('publicationThreads', threads);
-		return removed;
+		return deprecatedCandidates;
 	}
 	/**
 	 * Returns the Slack thread timestamp ID for a given pact event and channel, if it exists.
@@ -338,6 +341,66 @@ export class PactAggregator extends DurableObject<Env> {
 		}
 
 		return removedEntries;
+	}
+
+	/**
+	 * Finds deprecated publicationThreads entries in existing storage.
+	 *
+	 * Deprecated means: for the same provider+consumer+consumerVersionBranch+channelId,
+	 * there are multiple pact versions stored. Only the newest (by updatedTs) should remain.
+	 *
+	 * This is intended as a one-off production cleanup for deployments that already have
+	 * duplicated/superseded pact threads stored.
+	 */
+	async findDeprecatedPublicationThreads(limit?: number): Promise<PublicationThreadEntry[]> {
+		const threads = await this.getAllPublicationThreads();
+		const entries: PublicationThreadEntry[] = Object.entries(threads)
+			.map(([key, info]) => (info ? { key, info } : undefined))
+			.filter((x): x is PublicationThreadEntry => Boolean(x));
+
+		if (entries.length === 0) return [];
+
+		const groups = new Map<string, PublicationThreadEntry[]>();
+		for (const entry of entries) {
+			const groupKey = `${entry.info.payload.providerName}|${entry.info.payload.consumerName}|${entry.info.payload.consumerVersionBranch}|${entry.info.channelId}`;
+			const group = groups.get(groupKey);
+			if (group) {
+				group.push(entry);
+			} else {
+				groups.set(groupKey, [entry]);
+			}
+		}
+
+		const deprecated: PublicationThreadEntry[] = [];
+		for (const groupEntries of groups.values()) {
+			if (groupEntries.length <= 1) continue;
+
+			// Newest first by updated time.
+			groupEntries.sort((a, b) => this.getThreadUpdatedTime(b.info) - this.getThreadUpdatedTime(a.info));
+
+			for (const entry of groupEntries.slice(1)) {
+				deprecated.push(entry);
+				if (limit && deprecated.length >= limit) return deprecated;
+			}
+		}
+
+		return deprecated;
+	}
+
+	async removePublicationThreadKeys(keys: string[]): Promise<number> {
+		if (keys.length === 0) return 0;
+		const threads = await this.getAllPublicationThreads();
+		let removedCount = 0;
+		for (const key of keys) {
+			if (threads[key]) {
+				delete threads[key];
+				removedCount += 1;
+			}
+		}
+		if (removedCount > 0) {
+			await this.ctx.storage.put('publicationThreads', threads);
+		}
+		return removedCount;
 	}
 
 	private async consolidateEvents(currentTime: number) {
@@ -462,7 +525,6 @@ export class PactAggregator extends DurableObject<Env> {
 		const threads: Record<string, PublicationThreadInfo | undefined> = (await this.ctx.storage.get('publicationThreads')) ?? {};
 		return threads;
 	}
-
 
 	private getThreadUpdatedTime(info: PublicationThreadInfo): number {
 		const candidate = info.updatedTs;

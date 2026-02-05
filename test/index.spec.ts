@@ -287,7 +287,7 @@ describe('Pact Slack Aggregator Worker', () => {
 
 		it('should reject trigger request with wrong key', async () => {
 			const response = await SELF.fetch('https://example.com/trigger?key=wrong');
-			expect(response.status).toBe(405);
+			expect(response.status).toBe(401);
 		});
 	});
 
