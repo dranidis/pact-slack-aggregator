@@ -7,11 +7,18 @@ import type {
 	PublicationThreadInfo,
 	PublicationThreadEntry,
 	PactWebhookPayload,
+	ContractRequiringVerificationPublishedPayload,
 } from './types';
 import { getPactVersionFromPayload } from './payload-utils';
 import { CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from './constants';
 import { DAY_MS } from './constants';
 import { coerceInt } from './utils';
+
+interface DeprecationGroupEntry {
+	key: string;
+	info: PublicationThreadInfo;
+	updatedTime: number;
+}
 
 /**
  * Cloudflare Durable Objects ensure that:
@@ -197,41 +204,89 @@ export class PactAggregator extends DurableObject<Env> {
 	): Promise<PublicationThreadEntry[]> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads = await this.getAllPublicationThreads();
-
-		// Two-phase deprecation:
-		// 1) identify deprecated candidates,
-		// 2) caller updates Slack,
-		// 3) caller deletes via removePublicationThreadKeys() only if Slack succeeded.
-		const deprecatedCandidates: PublicationThreadEntry[] = [];
-		if (pub.eventType === CONTRACT_REQUIRING_VERIFICATION_PUBLISHED) {
-			const newerPactVersion = getPactVersionFromPayload(pub);
-			for (const [existingKey, info] of Object.entries(threads)) {
-				if (!info) continue;
-				if (existingKey === key) continue;
-				if (!existingKey.endsWith(`|${channel}`)) continue;
-				if (info.payload.providerName !== pub.providerName) continue;
-				if (info.payload.consumerName !== pub.consumerName) continue;
-				if (info.payload.consumerVersionBranch !== pub.consumerVersionBranch) continue;
-
-				const existingPactVersion = getPactVersionFromPayload(info.payload);
-				if (!existingPactVersion || !newerPactVersion) continue;
-				if (existingPactVersion === newerPactVersion) continue;
-
-				deprecatedCandidates.push({ key: existingKey, info });
-			}
-		}
+		const currentTime = now();
+		const currentTimeString = currentTime.toString();
 
 		const existing = threads[key];
-		threads[key] = {
+		const info = {
 			ts: threadTs,
 			channelId: channelId,
 			payload: pub, // always store latest payload
-			updatedTs: now().toString(),
-			createdTs: existing?.createdTs ?? now().toString(),
+			updatedTs: currentTimeString,
+			createdTs: existing?.createdTs ?? currentTimeString,
 		};
+
+		const deprecatedCandidates =
+			pub.eventType === CONTRACT_REQUIRING_VERIFICATION_PUBLISHED
+				? this.collectDeprecatedEntries(threads, pub, channel, key, info, currentTime)
+				: [];
+
+		threads[key] = info;
 		await this.ctx.storage.put('publicationThreads', threads);
 		return deprecatedCandidates;
 	}
+
+	private getDeprecationKeepCount(branch: string): number | undefined {
+		if (!branch) return undefined;
+		return branch === 'master' ? 2 : 1;
+	}
+
+	private selectDeprecatedCandidatesFromGroupEntries(
+		groupEntries: DeprecationGroupEntry[],
+		keepCount: number,
+		keyToExclude?: string,
+	): PublicationThreadEntry[] {
+		if (groupEntries.length <= keepCount) return [];
+
+		groupEntries.sort((a, b) => b.updatedTime - a.updatedTime);
+
+		const activeKeys = new Set(groupEntries.slice(0, keepCount).map((e) => e.key));
+		const deprecated: PublicationThreadEntry[] = [];
+		for (const entry of groupEntries) {
+			if (keyToExclude && entry.key === keyToExclude) continue;
+			if (activeKeys.has(entry.key)) continue;
+			deprecated.push({ key: entry.key, info: entry.info });
+		}
+		return deprecated;
+	}
+
+	/**
+	 * Collects the publication threads that should be removed and marked as deprecated at slack
+	 * Each branch should have only the latest pact version.
+	 * Exceptions:
+	 *
+	 * - master 2 versions (latest and production)
+	 * - empty branch (not identified)
+	 *
+	 */
+	private collectDeprecatedEntries(
+		threads: Record<string, PublicationThreadInfo | undefined>,
+		pub: ContractRequiringVerificationPublishedPayload,
+		channel: string,
+		key: string,
+		currentInfo: PublicationThreadInfo,
+		currentTime: number,
+	) {
+		const branch = pub.consumerVersionBranch ?? '';
+
+		const keepCount = this.getDeprecationKeepCount(branch);
+		if (!keepCount) return [];
+		const groupEntries: DeprecationGroupEntry[] = [];
+
+		for (const [existingKey, info] of Object.entries(threads)) {
+			if (!existingKey.endsWith(`|${channel}`)) continue;
+			if (info!.payload.providerName !== pub.providerName) continue;
+			if (info!.payload.consumerName !== pub.consumerName) continue;
+			if (info!.payload.consumerVersionBranch !== branch) continue;
+			groupEntries.push({ key: existingKey, info: info!, updatedTime: this.getThreadUpdatedTime(info!) });
+		}
+
+		// Include the newly published pact version as the newest entry.
+		groupEntries.push({ key, info: currentInfo, updatedTime: currentTime });
+
+		return this.selectDeprecatedCandidatesFromGroupEntries(groupEntries, keepCount, key);
+	}
+
 	/**
 	 * Returns the Slack thread timestamp ID for a given pact event and channel, if it exists.
 	 * This is used to post messages in the correct thread for pact publications and verifications.
@@ -373,12 +428,19 @@ export class PactAggregator extends DurableObject<Env> {
 
 		const deprecated: PublicationThreadEntry[] = [];
 		for (const groupEntries of groups.values()) {
-			if (groupEntries.length <= 1) continue;
+			const branch = groupEntries[0]?.info.payload.consumerVersionBranch ?? '';
+			const keepCount = this.getDeprecationKeepCount(branch);
+			if (!keepCount) continue;
 
-			// Newest first by updated time.
-			groupEntries.sort((a, b) => this.getThreadUpdatedTime(b.info) - this.getThreadUpdatedTime(a.info));
-
-			for (const entry of groupEntries.slice(1)) {
+			const selectionEntries: DeprecationGroupEntry[] = groupEntries.map((e) => {
+				return {
+					key: e.key,
+					info: e.info,
+					updatedTime: this.getThreadUpdatedTime(e.info),
+				};
+			});
+			const selected = this.selectDeprecatedCandidatesFromGroupEntries(selectionEntries, keepCount);
+			for (const entry of selected) {
 				deprecated.push(entry);
 				if (limit && deprecated.length >= limit) return deprecated;
 			}
