@@ -1,4 +1,4 @@
-import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
+import { env, createExecutionContext, waitOnExecutionContext, SELF, runInDurableObject } from 'cloudflare:test';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import worker from '../src/index';
 import { makeProviderVerificationPayload, makeContractPublicationPayload, expectTimestampToBeRecent } from './test-utilities';
@@ -13,7 +13,7 @@ import {
 	SlackUpdateMessageRequest,
 } from '../src/types';
 import { mockTime, now, resetTime } from '../src/time-utils';
-import { THREAD_REMOVAL_NOTICE } from '../src/constants';
+import { THREAD_REMOVAL_NOTICE, THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE } from '../src/constants';
 
 interface SlackCallMock {
 	text?: string;
@@ -869,11 +869,22 @@ describe('Provider channel messages', () => {
 
 		vi.stubGlobal(
 			'fetch',
-			vi.fn().mockImplementation((url: string, options: { body: string }) => {
-				// if (url.includes('slack.com/api/chat.postMessage')) {
+			vi.fn().mockImplementation((url: string, options: { body: string; method: string }) => {
+				if (url.includes('slack.com/api/conversations.replies')) {
+					return Promise.resolve({
+						json: (): Promise<unknown> =>
+							Promise.resolve({
+								ok: true,
+								messages: [{ ts: now().toString(), reply_count: 1 }],
+							}),
+						ok: true,
+					});
+				}
+
 				if (url.includes('slack.com/api')) {
-					// console.debug(options.body);
-					const payload = JSON.parse(options.body) as SlackPostMessageRequest;
+					const payload = options.body
+						? (JSON.parse(options.body) as SlackPostMessageRequest)
+						: ({ channel: '' } as SlackPostMessageRequest);
 					slackCalls.push(payload);
 					return Promise.resolve({
 						json: (): Promise<SlackPostMessageResponse> =>
@@ -933,6 +944,7 @@ describe('Provider channel messages', () => {
 				payload: publicationPayload,
 				updatedTs: currentMockTime.toString(),
 				createdTs: currentMockTime.toString(),
+				replyCount: 0,
 			},
 		};
 
@@ -1015,6 +1027,145 @@ describe('Provider channel messages', () => {
 		);
 	});
 
+	it('should rotate provider thread when replyCount reaches max', async () => {
+		const providerName = 'ProviderChannelService';
+		const consumerName = 'ConsumerChannelClient';
+		const providerChannel = `${env.PROVIDER_CHANNEL_PREFIX}${providerName}`;
+		const publicationPayload = makeContractPublicationPayload({ providerName, consumerName });
+
+		const t0 = 1000000000000;
+		mockTime(() => t0);
+		await sendEvent(publicationPayload);
+
+		// Force replyCount to the threshold so rotation happens on next verification.
+		const stub = env.PACT_AGGREGATOR.get(env.PACT_AGGREGATOR.idFromName(env.PACT_AGGREGATOR_NAME));
+		await stub.setPublicationThreadReplyCount(publicationPayload, providerChannel, 2);
+
+		const t1 = t0 + 1000;
+		mockTime(() => t1);
+		await sendEventWithEnvOverride(
+			makeProviderVerificationPayload({
+				providerName,
+				consumerName,
+				providerVersionBranch: 'develop',
+				verificationResultUrl: 'https://example.com/pact-version/PACT-VERSION/verification-results/999',
+			}),
+			{ MAX_MESSAGES_PER_PACT_IN_THREAD: 2 },
+		);
+
+		const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+		const calls = fetchMock.mock.calls;
+
+		// publication: 1 postMessage
+		// verification with rotation: 1 chat.update (close old) + 1 postMessage (new root) + 1 postMessage (reply)
+		expect(calls.length).toBe(4);
+
+		const updateCalls = calls.filter(([u]) => (u as string).includes('chat.update'));
+		expect(updateCalls.length).toBe(1);
+		const [, updateInit] = updateCalls[0] as [string, { body: string }];
+		const updateBody = JSON.parse(updateInit.body) as SlackUpdateMessageRequest;
+		expect(updateBody.text).toContain(THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE);
+		expect(updateBody.ts).toBe(t0.toString());
+
+		const postCalls = calls.filter(([u]) => (u as string).includes('chat.postMessage'));
+		expect(postCalls.length).toBe(3);
+		const [, newRootInit] = postCalls[1] as [string, { body: string }];
+		const newRootBody = JSON.parse(newRootInit.body) as SlackPostMessageRequest;
+		expect(newRootBody.channel).toBe(providerChannel);
+		expect(newRootBody.thread_ts).toBeUndefined();
+		expect(newRootBody.text).toContain('Contract');
+
+		const [, replyInit] = postCalls[2] as [string, { body: string }];
+		const replyBody = JSON.parse(replyInit.body) as SlackPostMessageRequest;
+		expect(replyBody.channel).toBe(providerChannel);
+		expect(replyBody.thread_ts).toBe(t1.toString());
+
+		const debugResponse = await debug();
+		expect(debugResponse.status).toBe(200);
+		const debugData: DebugInfo = await debugResponse.json();
+		const key = `${providerName}|${consumerName}|PACT-VERSION|${providerChannel}`;
+		expect(debugData.publicationThreads[key]?.ts).toBe(t1.toString());
+		expect(debugData.publicationThreads[key]?.replyCount).toBe(1);
+
+		resetTime();
+	});
+
+	it('should backfill replyCount from Slack when missing and then increment on reply', async () => {
+		const providerName = 'ProviderChannelService';
+		const consumerName = 'ConsumerChannelClient';
+		const providerChannel = `${env.PROVIDER_CHANNEL_PREFIX}${providerName}`;
+		const publicationPayload = makeContractPublicationPayload({ providerName, consumerName });
+
+		const t0 = 1000000000000;
+		mockTime(() => t0);
+		await sendEventWithEnvOverride(publicationPayload, { MAX_MESSAGES_PER_PACT_IN_THREAD: 100 });
+
+		// Simulate a legacy stored entry with no replyCount field.
+		const stub = env.PACT_AGGREGATOR.get(env.PACT_AGGREGATOR.idFromName(env.PACT_AGGREGATOR_NAME));
+		await runInDurableObject(stub, async (instance) => {
+			const storage = getDurableObjectStorage(instance);
+			const threads = (await storage.get<Record<string, PublicationThreadInfo | undefined>>('publicationThreads')) ?? {};
+			const key = `${providerName}|${consumerName}|PACT-VERSION|${providerChannel}`;
+			const existing = threads[key];
+			if (existing) {
+				// eslint-disable-next-line @typescript-eslint/no-unused-vars
+				const { replyCount: _, ...withoutReplyCount } = existing;
+				threads[key] = withoutReplyCount;
+				await storage.put('publicationThreads', threads);
+			}
+		});
+
+		const t1 = t0 + 1000;
+		mockTime(() => t1);
+		await sendEventWithEnvOverride(
+			makeProviderVerificationPayload({
+				providerName,
+				consumerName,
+				providerVersionBranch: 'develop',
+				verificationResultUrl: 'https://example.com/pact-version/PACT-VERSION/verification-results/1000',
+			}),
+			{ MAX_MESSAGES_PER_PACT_IN_THREAD: 100 },
+		);
+
+		const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+		const gotReplies = fetchMock.mock.calls.some(([u]) => (u as string).includes('conversations.replies'));
+		expect(gotReplies).toBe(true);
+
+		const debugResponse = await debug();
+		expect(debugResponse.status).toBe(200);
+		const debugData: DebugInfo = await debugResponse.json();
+		const key = `${providerName}|${consumerName}|PACT-VERSION|${providerChannel}`;
+		// Mock returns reply_count=1, then worker posts a reply (+1) => 2
+		expect(debugData.publicationThreads[key]?.replyCount).toBe(2);
+
+		resetTime();
+	});
+
+	interface DurableObjectStorageLike {
+		get<T = unknown>(key: string): Promise<T | undefined>;
+		put(key: string, value: unknown): Promise<void>;
+	}
+
+	function getDurableObjectStorage(instance: unknown): DurableObjectStorageLike {
+		if (typeof instance !== 'object' || instance === null) {
+			throw new Error('Expected durable object instance to be an object');
+		}
+		const ctx = (instance as Record<string, unknown>).ctx;
+		if (typeof ctx !== 'object' || ctx === null) {
+			throw new Error('Expected durable object instance to have ctx');
+		}
+		const storage = (ctx as Record<string, unknown>).storage;
+		if (typeof storage !== 'object' || storage === null) {
+			throw new Error('Expected durable object ctx to have storage');
+		}
+		const get = (storage as Record<string, unknown>).get;
+		const put = (storage as Record<string, unknown>).put;
+		if (typeof get !== 'function' || typeof put !== 'function') {
+			throw new Error('Expected durable object storage to have get/put');
+		}
+		return storage as DurableObjectStorageLike;
+	}
+
 	it('should post a publication summary and a verification thread reply to the provider-specific channel when a verification happens with no previous publication', async () => {
 		// Arrange: create a contract publication payload with distinct provider
 		const publicationPayload = makeProviderVerificationPayload({
@@ -1061,6 +1212,7 @@ describe('Provider channel messages', () => {
 				payload: publicationPayload,
 				updatedTs: currentMockTime.toString(),
 				createdTs: currentMockTime.toString(),
+				replyCount: 1,
 			},
 		};
 
@@ -1120,6 +1272,7 @@ describe('Provider channel messages', () => {
 				payload: publicationPayload,
 				updatedTs: verificationMockTime.toString(),
 				createdTs: publicationMockTime.toString(),
+				replyCount: 1,
 			},
 		};
 
@@ -1212,6 +1365,7 @@ describe('Provider channel messages', () => {
 				payload: publicationPayload,
 				updatedTs: verificationMockTime2.toString(),
 				createdTs: publicationMockTime.toString(),
+				replyCount: 2,
 			},
 		};
 
@@ -1310,6 +1464,19 @@ async function sendEvent(event?: PactWebhookPayload) {
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(event ?? makeProviderVerificationPayload()),
 	});
+}
+
+async function sendEventWithEnvOverride(event: PactWebhookPayload, envOverride: Record<string, unknown>) {
+	const ctx = createExecutionContext();
+	const request = new Request(`https://example.com?key=${env.DEBUG_KEY}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(event),
+	});
+	const mergedEnv = { ...(env as unknown as Record<string, unknown>), ...envOverride } as unknown as Env;
+	const response = await worker.fetch(request, mergedEnv);
+	await waitOnExecutionContext(ctx);
+	return response;
 }
 
 async function trigger() {

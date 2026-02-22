@@ -214,6 +214,7 @@ export class PactAggregator extends DurableObject<Env> {
 			payload: pub, // always store latest payload
 			updatedTs: currentTimeString,
 			createdTs: existing?.createdTs ?? currentTimeString,
+			replyCount: existing?.replyCount ?? 0,
 		};
 
 		const deprecatedCandidates =
@@ -226,6 +227,14 @@ export class PactAggregator extends DurableObject<Env> {
 		return deprecatedCandidates;
 	}
 
+	/**
+	 * Determines the number of publication threads to keep for a given branch.
+	 * - For the 'master' branch, keep the latest 2 versions (latest and production).
+	 * - For any other identified branch, keep only the latest version.
+	 * - For empty or unidentified branches, no deprecation is applied (keep all).
+	 * @param branch The branch name
+	 * @returns The number of threads to keep, or undefined if the branch is not specified
+	 */
 	private getDeprecationKeepCount(branch: string): number | undefined {
 		if (!branch) return undefined;
 		return branch === 'master' ? 2 : 1;
@@ -303,13 +312,19 @@ export class PactAggregator extends DurableObject<Env> {
 		return threads[key]?.ts;
 	}
 
-	async touchPublicationThreadUpdateTs(pub: PactWebhookPayload, channel: string): Promise<void> {
+	/**
+	 * Updates the last updated timestamp and increments the reply count for a publication thread.
+	 */
+	async updatePublicationThread(pub: PactWebhookPayload, channel: string): Promise<void> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads = await this.getAllPublicationThreads();
-		if (threads[key]) {
-			threads[key].updatedTs = now().toString();
-			await this.ctx.storage.put('publicationThreads', threads);
-		}
+		const info = threads[key];
+		if (!info) return;
+
+		info.updatedTs = now().toString();
+		const current = typeof info.replyCount === 'number' ? info.replyCount : 0;
+		info.replyCount = current + 1;
+		await this.ctx.storage.put('publicationThreads', threads);
 	}
 
 	async getPublicationPayload(pub: PactWebhookPayload, channel: string): Promise<PactWebhookPayload | undefined> {
@@ -322,6 +337,46 @@ export class PactAggregator extends DurableObject<Env> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads = await this.getAllPublicationThreads();
 		return threads[key]?.channelId;
+	}
+
+	async getPublicationThreadReplyCount(pub: PactWebhookPayload, channel: string): Promise<number | undefined> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads = await this.getAllPublicationThreads();
+		return threads[key]?.replyCount;
+	}
+
+	async setPublicationThreadReplyCount(pub: PactWebhookPayload, channel: string, replyCount: number): Promise<void> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads = await this.getAllPublicationThreads();
+		const info = threads[key];
+		if (!info) return;
+		info.replyCount = Math.max(0, Math.floor(replyCount));
+		await this.ctx.storage.put('publicationThreads', threads);
+	}
+
+	/**
+	 * Rotates the stored publication thread to a new Slack root message ts.
+	 * Deletes the existing entry and recreates it with replyCount reset to 0.
+	 */
+	async rotatePublicationThread(pub: PactWebhookPayload, channel: string, newThreadTs: string, channelId: string): Promise<void> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads = await this.getAllPublicationThreads();
+		const existing = threads[key];
+		if (!existing) return;
+
+		// Remove old entry then create a fresh one so legacy fields don't linger.
+		delete threads[key];
+
+		const currentTimeString = now().toString();
+		threads[key] = {
+			ts: newThreadTs,
+			channelId,
+			payload: existing.payload,
+			createdTs: currentTimeString,
+			updatedTs: currentTimeString,
+			replyCount: 0,
+		};
+		await this.ctx.storage.put('publicationThreads', threads);
 	}
 
 	/**

@@ -54,10 +54,29 @@ export interface PublicationThreadInfo {
 	ts: string; // root message timestamp
 	createdTs: string; // creation timestamp
 	updatedTs: string; // latest update message timestamp
+	/**
+	 * Number of replies in the thread.
+	 * Optional for backwards compatibility: older Durable Object entries won't have it.
+	 */
+	replyCount?: number;
 	channelId: string; // Slack channel Id
 	// Store the original webhook payload that created the root message so we can derive summary text later
 	payload: PactWebhookPayload;
 	// Legacy field kept for backward compatibility (existing stored entries before refactor)
+}
+
+export interface SlackConversationReplyMessage {
+	ts: string;
+	thread_ts?: string;
+	reply_count?: number;
+}
+
+export interface SlackConversationsRepliesResponse {
+	ok: boolean;
+	messages?: SlackConversationReplyMessage[];
+	error?: string;
+	needed?: string;
+	provided?: string;
 }
 
 export interface PublicationThreadEntry {

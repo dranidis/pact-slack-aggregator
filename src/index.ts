@@ -14,8 +14,10 @@ import {
 	appendVerificationStatusToProviderPublicationSummary,
 	getPublicationSummaryForPayload,
 } from './messages';
-import { postPacticipantEventsToSlack, slackPost, slackUpdate } from './slack';
-import { DEPRECATION_NOTICE, THREAD_REMOVAL_NOTICE } from './constants';
+import { postPacticipantEventsToSlack, slackPost, slackUpdate, slackFetchThreadReplyCount } from './slack';
+import { DEPRECATION_NOTICE, THREAD_REMOVAL_NOTICE, THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE } from './constants';
+import { coerceInt } from './utils';
+import { PactAggregator } from './pact-aggregator';
 export { PactAggregator } from './pact-aggregator';
 
 const PUBLISH_CRON = '*/2 * * * *';
@@ -78,9 +80,7 @@ export default {
 							deprecated: deprecated.map((e) => ({
 								key: e.key,
 								consumerVersionBranch: e.info.payload.consumerVersionBranch,
-								consumerVersionNumber: e.info.payload.consumerVersionNumber
-									? e.info.payload.consumerVersionNumber.slice(0, 8)
-									: undefined,
+								consumerVersionNumber: e.info.payload.consumerVersionNumber ? e.info.payload.consumerVersionNumber.slice(0, 8) : undefined,
 							})),
 						},
 						null,
@@ -221,6 +221,7 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 	if (rawPayload.eventType === 'provider_verification_published') {
 		const ver = rawPayload;
 		console.log(`Posting verification result to channel ${providerSlackChannel} in thread ${threadTs}`);
+		threadTs = await rotatePublicationThreadIfNeeded(aggregatorStub, ver, providerSlackChannel, env, threadTs);
 
 		// If provider branch is master, update original summary instead of posting thread detail
 		if (ver.providerVersionBranch === 'master') {
@@ -228,7 +229,7 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 		}
 
 		const verificationThreadDetail = createVerificationThreadDetailsForProviderChannel(ver, env);
-		await slackPost(
+		const replyResp = await slackPost(
 			{
 				SLACK_CHANNEL: providerSlackChannel,
 				SLACK_TOKEN: env.SLACK_TOKEN,
@@ -236,10 +237,83 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 			verificationThreadDetail,
 			threadTs,
 		);
-
-		// Update the thread's last updated timestamp
-		await aggregatorStub.touchPublicationThreadUpdateTs(ver, providerSlackChannel);
+		if (replyResp.ok) {
+			await aggregatorStub.updatePublicationThread(ver, providerSlackChannel);
+		}
 	}
+}
+
+async function rotatePublicationThreadIfNeeded(
+	aggregatorStub: DurableObjectStub<PactAggregator>,
+	ver: ProviderVerificationPublishedPayload,
+	providerSlackChannel: string,
+	env: Env,
+	threadTs: string,
+) {
+	const maxMessagesPerThread = coerceInt(env.MAX_MESSAGES_PER_PACT_IN_THREAD, 100, { min: 0 });
+	if (maxMessagesPerThread === 0) {
+		return threadTs; // Rotation disabled
+	}
+	const channelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
+	if (!channelId) {
+		console.error('Missing channel ID for thread counting/rotation; skipping rotation');
+		return threadTs;
+	}
+
+	let replyCount = await aggregatorStub.getPublicationThreadReplyCount(ver, providerSlackChannel);
+	if (replyCount === undefined) {
+		// Legacy entries: backfill from Slack once.
+		replyCount = await slackFetchThreadReplyCount(
+			{
+				SLACK_CHANNEL: channelId,
+				SLACK_TOKEN: env.SLACK_TOKEN,
+			},
+			threadTs,
+		);
+		if (replyCount !== undefined) {
+			await aggregatorStub.setPublicationThreadReplyCount(ver, providerSlackChannel, replyCount);
+		}
+	}
+
+	if (replyCount === undefined || replyCount < maxMessagesPerThread) {
+		return threadTs; // No rotation needed or unable to determine reply count
+	}
+
+	console.log(
+		`Rotating thread for ${ver.consumerName} v${ver.consumerVersionNumber} in channel ${providerSlackChannel} due to reply count ${replyCount}`,
+	);
+
+	const oldThreadTs = threadTs;
+	const originalPayload = (await aggregatorStub.getPublicationPayload(ver, providerSlackChannel)) ?? ver;
+	const summaryText = getPublicationSummaryForPayload(originalPayload, env);
+	const discontinuationNotice = `${THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE}`;
+
+	// Close the old thread (update root message in place)
+	await slackUpdate(
+		{
+			SLACK_CHANNEL: channelId,
+			SLACK_TOKEN: env.SLACK_TOKEN,
+		},
+		oldThreadTs,
+		summaryText + '\n' + discontinuationNotice,
+	);
+
+	// Open a new thread by posting a new root summary
+	const summaryResp = await slackPost(
+		{
+			SLACK_CHANNEL: providerSlackChannel,
+			SLACK_TOKEN: env.SLACK_TOKEN,
+		},
+		summaryText,
+	);
+	if (summaryResp.ok && summaryResp.ts && summaryResp.channel) {
+		threadTs = summaryResp.ts;
+		await aggregatorStub.rotatePublicationThread(ver, providerSlackChannel, threadTs, summaryResp.channel);
+	} else {
+		console.error('Failed to create rotated thread root message; continuing in existing thread');
+		threadTs = oldThreadTs;
+	}
+	return threadTs;
 }
 
 /**
