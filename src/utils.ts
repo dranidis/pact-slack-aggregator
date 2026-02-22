@@ -43,3 +43,45 @@ export function coerceInt(value: unknown, fallback: number, opts: { min: number 
 	if (i < opts.min) return Math.max(opts.min, fallback);
 	return i;
 }
+
+function coerceStringRecord(value: unknown): Record<string, string> | undefined {
+	if (!value) return undefined;
+	if (typeof value === 'string') {
+		try {
+			const parsed: unknown = JSON.parse(value);
+			if (parsed && typeof parsed === 'object') {
+				return parsed as Record<string, string>;
+			}
+		} catch {
+			return undefined;
+		}
+		return undefined;
+	}
+	if (typeof value === 'object') {
+		return value as Record<string, string>;
+	}
+	return undefined;
+}
+
+interface MasterBranchEnv {
+	DEFAULT_MASTER_BRANCH?: string;
+	PACTICIPANT_MASTER_BRANCH_EXCEPTIONS?: unknown;
+}
+
+/**
+ * Returns the configured "master" (default) branch name for a given pacticipant.
+ *
+ * Resolution order:
+ * 1) env.PACTICIPANT_MASTER_BRANCH_EXCEPTIONS[pacticipant]
+ * 2) env.DEFAULT_MASTER_BRANCH
+ * 3) 'master'
+ */
+export function getPacticipantMasterBranch(env: MasterBranchEnv, pacticipant: string): string {
+	const defaultBranch = (env.DEFAULT_MASTER_BRANCH ?? 'master').trim();
+	const exceptions = coerceStringRecord(env.PACTICIPANT_MASTER_BRANCH_EXCEPTIONS);
+	const exception = exceptions?.[pacticipant];
+	if (typeof exception === 'string' && exception.trim()) {
+		return exception.trim();
+	}
+	return defaultBranch;
+}

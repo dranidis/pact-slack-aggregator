@@ -8,7 +8,7 @@ import type {
 } from './types';
 
 // Minimal environment interface for Slack operations
-export interface SlackEnv {
+interface SlackEnv {
 	SLACK_CHANNEL: string;
 	SLACK_TOKEN: string;
 }

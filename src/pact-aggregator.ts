@@ -12,7 +12,7 @@ import type {
 import { getPactVersionFromPayload } from './payload-utils';
 import { CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from './constants';
 import { DAY_MS } from './constants';
-import { coerceInt } from './utils';
+import { coerceInt, getPacticipantMasterBranch } from './utils';
 
 interface DeprecationGroupEntry {
 	key: string;
@@ -235,9 +235,10 @@ export class PactAggregator extends DurableObject<Env> {
 	 * @param branch The branch name
 	 * @returns The number of threads to keep, or undefined if the branch is not specified
 	 */
-	private getDeprecationKeepCount(branch: string): number | undefined {
+	private getDeprecationKeepCount(pacticipant: string, branch: string): number | undefined {
 		if (!branch) return undefined;
-		return branch === 'master' ? 2 : 1;
+		const masterBranch = getPacticipantMasterBranch(this.env, pacticipant);
+		return branch === masterBranch ? 2 : 1;
 	}
 
 	private selectDeprecatedCandidatesFromGroupEntries(
@@ -264,7 +265,7 @@ export class PactAggregator extends DurableObject<Env> {
 	 * Each branch should have only the latest pact version.
 	 * Exceptions:
 	 *
-	 * - master 2 versions (latest and production)
+	 * - configured "master" branch: keep 2 versions (latest and production)
 	 * - empty branch (not identified)
 	 *
 	 */
@@ -278,7 +279,7 @@ export class PactAggregator extends DurableObject<Env> {
 	) {
 		const branch = pub.consumerVersionBranch ?? '';
 
-		const keepCount = this.getDeprecationKeepCount(branch);
+		const keepCount = this.getDeprecationKeepCount(pub.consumerName, branch);
 		if (!keepCount) return [];
 		const groupEntries: DeprecationGroupEntry[] = [];
 
@@ -350,7 +351,7 @@ export class PactAggregator extends DurableObject<Env> {
 		const threads = await this.getAllPublicationThreads();
 		const info = threads[key];
 		if (!info) return;
-		info.replyCount = Math.max(0, Math.floor(replyCount));
+		info.replyCount = replyCount;
 		await this.ctx.storage.put('publicationThreads', threads);
 	}
 
@@ -483,8 +484,9 @@ export class PactAggregator extends DurableObject<Env> {
 
 		const deprecated: PublicationThreadEntry[] = [];
 		for (const groupEntries of groups.values()) {
+			const consumerName = groupEntries[0]?.info.payload.consumerName ?? '';
 			const branch = groupEntries[0]?.info.payload.consumerVersionBranch ?? '';
-			const keepCount = this.getDeprecationKeepCount(branch);
+			const keepCount = this.getDeprecationKeepCount(consumerName, branch);
 			if (!keepCount) continue;
 
 			const selectionEntries: DeprecationGroupEntry[] = groupEntries.map((e) => {

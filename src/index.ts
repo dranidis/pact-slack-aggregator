@@ -16,7 +16,7 @@ import {
 } from './messages';
 import { postPacticipantEventsToSlack, slackPost, slackUpdate, slackFetchThreadReplyCount } from './slack';
 import { DEPRECATION_NOTICE, THREAD_REMOVAL_NOTICE, THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE } from './constants';
-import { coerceInt } from './utils';
+import { coerceInt, getPacticipantMasterBranch } from './utils';
 import { PactAggregator } from './pact-aggregator';
 export { PactAggregator } from './pact-aggregator';
 
@@ -223,8 +223,9 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 		console.log(`Posting verification result to channel ${providerSlackChannel} in thread ${threadTs}`);
 		threadTs = await rotatePublicationThreadIfNeeded(aggregatorStub, ver, providerSlackChannel, env, threadTs);
 
-		// If provider branch is master, update original summary instead of posting thread detail
-		if (ver.providerVersionBranch === 'master') {
+		// If provider branch is the configured "master" branch, update original summary instead of posting thread detail
+		const providerMasterBranch = getPacticipantMasterBranch(env, ver.providerName);
+		if (ver.providerVersionBranch === providerMasterBranch) {
 			await updateProviderThreadSummaryForMasterBranch(ver, providerSlackChannel, env, threadTs);
 		}
 

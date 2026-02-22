@@ -15,10 +15,10 @@
   - Posts a **thread reply** containing the detailed publication/verification lines (including links to Pact and GitHub).
 - **Provider-specific Slack channels + per-contract threads**:
   - On publication, posts a root summary to a provider channel derived from `PROVIDER_CHANNEL_PREFIX` (default `#pact-`) + provider name.
-  - On verification, posts results into the matching contract thread; master-branch verifications also update the root message with the latest status.
+  - On verification, posts results into the matching contract thread; verifications on the provider’s configured “master” branch (see `DEFAULT_MASTER_BRANCH` / `PACTICIPANT_MASTER_BRANCH_EXCEPTIONS`) also update the root message with the latest status.
   - Supports **thread rotation** when a thread becomes too large (`MAX_MESSAGES_PER_PACT_IN_THREAD`), closing the old thread and opening a new one.
   - **Deprecated pact handling (new publications)**: when a new `contract_requiring_verification_published` event is received for the same provider + consumer + consumer branch + provider channel, older pact versions are marked as deprecated and stop receiving updates:
-    - If `consumerVersionBranch` is `master`, keep the **2 most recently updated** pact versions for that provider/consumer/branch/channel; deprecate the rest.
+    - If `consumerVersionBranch` matches the consumer’s configured “master” branch, keep the **2 most recently updated** pact versions for that provider/consumer/branch/channel; deprecate the rest.
     - If `consumerVersionBranch` is any other non-empty value, keep only the **most recently updated** pact version for that provider/consumer/branch/channel; deprecate the rest.
     - If `consumerVersionBranch` is empty/unknown, branch-based deprecation is skipped (nothing is auto-deprecated on publish).
     - Deprecation is communicated in Slack by replying `🧹 *Deprecated pact!*` in the old thread and updating the root summary message to include the same notice.
@@ -55,8 +55,10 @@ Then edit both `.env`, `wrangler.dev.jsonc` and `wrangler.prod.jsonc` with your 
 - **SLACK_TOKEN**: Your Slack bot token
 - **DEBUG_KEY**: A secret key for accessing worker endpoints (debug/trigger and webhook ingestion)
 - **SLACK_CHANNEL**: Target Slack channel (e.g., `#ci`)
+- **DEFAULT_MASTER_BRANCH**: Default “master” branch name used for branch-specific behavior (e.g., `master` or `main`)
+- **PACTICIPANT_MASTER_BRANCH_EXCEPTIONS**: JSON map of pacticipant name -> master branch name for exceptions to the default
 - **GITHUB_BASE_URL**: Your GitHub organization URL
-- **PACTICIPANT_TO_REPO_MAP**: JSON mapping of Pact broker pacticipant names to Github repository names
+- **PACTICIPANT_TO_REPO_MAP**: JSON mapping of Pact broker pacticipant names to Github repository names. For pacticipants with no entry, it is assumed that the repo name is found by converting PascalCase pacticipant names to dash-separated strings.
 
 #### Slack configuration
 
