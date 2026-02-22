@@ -388,6 +388,108 @@ describe('PactAggregator', () => {
 			const threadTs = await aggregator.getPublicationThreadTs(ver, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`);
 			expect(threadTs).toBeDefined();
 		});
+
+		it('should identify older pact versions for same consumer branch and report deprecated candidates', async () => {
+			const channel = `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`;
+			const channelId = 'CHANNEL_ID_ABC';
+
+			const pubV1 = makeContractPublicationPayload({
+				providerName: 'API',
+				consumerName: 'UI',
+				consumerVersionBranch: 'feature/xyz',
+				consumerVersionNumber: 'sha-v1',
+				pactUrl: 'https://example.com/pacts/provider/API/consumer/UI/pact-version/pact-v1',
+			});
+			mockTime(() => 0);
+			await aggregator.upsertPublicationThreadInfo(pubV1, channel, 'TS_V1', channelId);
+
+			const pubV2 = makeContractPublicationPayload({
+				providerName: 'API',
+				consumerName: 'UI',
+				consumerVersionBranch: 'feature/xyz',
+				consumerVersionNumber: 'sha-v2',
+				pactUrl: 'https://example.com/pacts/provider/API/consumer/UI/pact-version/pact-v2',
+			});
+
+			mockTime(() => 1);
+			const removed = await aggregator.upsertPublicationThreadInfo(pubV2, channel, 'TS_V2', channelId);
+
+			expect(removed).toHaveLength(1);
+			expect(removed[0]!.key).toBe(`API|UI|pact-v1|${channel}`);
+			expect(removed[0]!.info.ts).toBe('TS_V1');
+
+			const debugInfo = await aggregator.getDebugInfo();
+			// Two-phase: upsert does not delete; caller deletes after Slack succeeds.
+			expect(debugInfo.publicationThreads).toHaveProperty(`API|UI|pact-v1|${channel}`);
+			expect(debugInfo.publicationThreads).toHaveProperty(`API|UI|pact-v2|${channel}`);
+
+			await aggregator.removePublicationThreadKeys([`API|UI|pact-v1|${channel}`]);
+			const debugInfoAfter = await aggregator.getDebugInfo();
+			expect(debugInfoAfter.publicationThreads).not.toHaveProperty(`API|UI|pact-v1|${channel}`);
+		});
+
+		it('should keep 2 active pact versions for master branch (deprecate only 3rd+)', async () => {
+			const channel = `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`;
+			const channelId = 'CHANNEL_ID_ABC';
+
+			const pubV1 = makeContractPublicationPayload({
+				providerName: 'API',
+				consumerName: 'UI',
+				consumerVersionBranch: 'master',
+				consumerVersionNumber: 'sha-v1',
+				pactUrl: 'https://example.com/pacts/provider/API/consumer/UI/pact-version/pact-v1',
+			});
+
+			mockTime(() => 0);
+			await aggregator.upsertPublicationThreadInfo(pubV1, channel, 'TS_V1', channelId);
+
+			const pubV2 = makeContractPublicationPayload({
+				providerName: 'API',
+				consumerName: 'UI',
+				consumerVersionBranch: 'master',
+				consumerVersionNumber: 'sha-v2',
+				pactUrl: 'https://example.com/pacts/provider/API/consumer/UI/pact-version/pact-v2',
+			});
+
+			mockTime(() => 1);
+			const deprecatedOnV2 = await aggregator.upsertPublicationThreadInfo(pubV2, channel, 'TS_V2', channelId);
+			expect(deprecatedOnV2).toHaveLength(0);
+
+			const pubV3 = makeContractPublicationPayload({
+				providerName: 'API',
+				consumerName: 'UI',
+				consumerVersionBranch: 'master',
+				consumerVersionNumber: 'sha-v3',
+				pactUrl: 'https://example.com/pacts/provider/API/consumer/UI/pact-version/pact-v3',
+			});
+			const deprecatedOnV3 = await aggregator.upsertPublicationThreadInfo(pubV3, channel, 'TS_V3', channelId);
+			expect(deprecatedOnV3).toHaveLength(1);
+			expect(deprecatedOnV3[0]!.key).toBe(`API|UI|pact-v1|${channel}`);
+		});
+
+		it('should not deprecate anything when consumerVersionBranch is empty', async () => {
+			const channel = `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`;
+			const channelId = 'CHANNEL_ID_ABC';
+
+			const pubV1 = makeContractPublicationPayload({
+				providerName: 'API',
+				consumerName: 'UI',
+				consumerVersionBranch: '',
+				consumerVersionNumber: 'sha-v1',
+				pactUrl: 'https://example.com/pacts/provider/API/consumer/UI/pact-version/pact-v1',
+			});
+			await aggregator.upsertPublicationThreadInfo(pubV1, channel, 'TS_V1', channelId);
+
+			const pubV2 = makeContractPublicationPayload({
+				providerName: 'API',
+				consumerName: 'UI',
+				consumerVersionBranch: '',
+				consumerVersionNumber: 'sha-v2',
+				pactUrl: 'https://example.com/pacts/provider/API/consumer/UI/pact-version/pact-v2',
+			});
+			const deprecatedOnV2 = await aggregator.upsertPublicationThreadInfo(pubV2, channel, 'TS_V2', channelId);
+			expect(deprecatedOnV2).toHaveLength(0);
+		});
 	});
 
 	describe('prunePublicationThreads', () => {
@@ -395,6 +497,7 @@ describe('PactAggregator', () => {
 			return makeContractPublicationPayload({
 				providerName: 'ProviderX',
 				consumerName: 'ConsumerY',
+				consumerVersionBranch: `branch-${pactVersion}`,
 				pactUrl: `https://example.com/pact-version/${pactVersion}`,
 			});
 		}
