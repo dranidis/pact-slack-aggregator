@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pascalCaseToDash, getVerificationId, extractPactUrlFromVerificationUrl } from '../src/utils';
+import { pascalCaseToDash, getVerificationId, extractPactUrlFromVerificationUrl, isMasterBranch, coerceInt } from '../src/utils';
 
 describe('Utils', () => {
 	describe('pascalCaseToDash', () => {
@@ -60,6 +60,57 @@ describe('Utils', () => {
 		it('should handle URLs with no trailing number after verification-results', () => {
 			const url = 'https://pactbroker.com/pacts/provider/API/consumer/Engine/pact-version/abc123/verification-results/';
 			expect(extractPactUrlFromVerificationUrl(url)).toBe('');
+		});
+	});
+
+	describe('coerceInt', () => {
+		it('should coerce valid number strings to integers', () => {
+			expect(coerceInt('42', 0, { min: 0 })).toBe(42);
+			expect(coerceInt('3.14', 0, { min: 0 })).toBe(3);
+		});
+
+		it('should return fallback for non-numeric strings', () => {
+			expect(coerceInt('abc', 10, { min: 0 })).toBe(10);
+			expect(coerceInt('', 5, { min: 0 })).toBe(5);
+		});
+
+		it('should return fallback for non-string, non-number inputs', () => {
+			expect(coerceInt({}, 7, { min: 0 })).toBe(7);
+			expect(coerceInt([], 8, { min: 0 })).toBe(8);
+		});
+
+		it('should enforce minimum value constraint', () => {
+			expect(coerceInt('-5', 0, { min: 0 })).toBe(0);
+			expect(coerceInt('2', 0, { min: 3 })).toBe(3);
+			expect(coerceInt('10', 0, { min: 5 })).toBe(10);
+		});
+	});
+
+	describe('isMasterBranch', () => {
+		// This function is simple and relies on environment variables, so we can test it with different env setups
+		it('should return true for master branch', () => {
+			const env = { DEFAULT_MASTER_BRANCH: 'master' };
+			expect(isMasterBranch(env, 'AnyPacticipant', 'master')).toBe(true);
+		});
+		it('should return false for non-master branch', () => {
+			const env = { DEFAULT_MASTER_BRANCH: 'master' };
+			expect(isMasterBranch(env, 'AnyPacticipant', 'develop')).toBe(false);
+		});
+		it('should return false when branch is empty', () => {
+			const env = { DEFAULT_MASTER_BRANCH: 'master' };
+			expect(isMasterBranch(env, 'AnyPacticipant', '')).toBe(false);
+		});
+		it('should return true for "master"when DEFAULT_MASTER_BRANCH is not set', () => {
+			const env = {};
+			expect(isMasterBranch(env, 'AnyPacticipant', 'master')).toBe(true);
+		});
+		it('should return true for custom master branch defined in PACTICIPANT_MASTER_BRANCH_EXCEPTIONS', () => {
+			const env = {
+				DEFAULT_MASTER_BRANCH: 'master',
+				PACTICIPANT_MASTER_BRANCH_EXCEPTIONS: { SpecialPacticipant: 'main' },
+			};
+			expect(isMasterBranch(env, 'SpecialPacticipant', 'main')).toBe(true);
+			expect(isMasterBranch(env, 'SpecialPacticipant', 'master')).toBe(false);
 		});
 	});
 });

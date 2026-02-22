@@ -16,8 +16,7 @@ import {
 } from './messages';
 import { postPacticipantEventsToSlack, slackPost, slackUpdate, slackFetchThreadReplyCount } from './slack';
 import { DEPRECATION_NOTICE, THREAD_REMOVAL_NOTICE, THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE } from './constants';
-import { coerceInt, getPacticipantMasterBranch } from './utils';
-import { PactAggregator } from './pact-aggregator';
+import { coerceInt, isMasterBranch } from './utils';
 export { PactAggregator } from './pact-aggregator';
 
 const PUBLISH_CRON = '*/2 * * * *';
@@ -169,11 +168,10 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 	if (rawPayload.eventType === 'provider_verification_published') {
 		const ver = rawPayload;
 		console.log(`Posting verification result to channel ${providerSlackChannel} in thread ${threadTs}`);
-		threadTs = await rotatePublicationThreadIfNeeded(aggregatorStub, ver, providerSlackChannel, env, threadTs);
+		threadTs = await rotatePublicationThreadIfNeeded(ver, providerSlackChannel, env, threadTs);
 
 		// If provider branch is the configured "master" branch, update original summary instead of posting thread detail
-		const providerMasterBranch = getPacticipantMasterBranch(env, ver.providerName);
-		if (ver.providerVersionBranch === providerMasterBranch) {
+		if (isMasterBranch(env, ver.providerName, ver.providerVersionBranch)) {
 			await updateProviderThreadSummaryForMasterBranch(ver, providerSlackChannel, env, threadTs);
 		}
 
@@ -193,12 +191,12 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 }
 
 async function rotatePublicationThreadIfNeeded(
-	aggregatorStub: DurableObjectStub<PactAggregator>,
 	ver: ProviderVerificationPublishedPayload,
 	providerSlackChannel: string,
 	env: Env,
 	threadTs: string,
 ) {
+	const aggregatorStub = getPactAggregatorStub(env);
 	const maxMessagesPerThread = coerceInt(env.MAX_MESSAGES_PER_PACT_IN_THREAD, 100, { min: 0 });
 	if (maxMessagesPerThread === 0) {
 		return threadTs; // Rotation disabled
@@ -277,7 +275,7 @@ async function updateProviderThreadSummaryForMasterBranch(
 ) {
 	const aggregatorStub = getPactAggregatorStub(env);
 
-	const originalPayload = (await aggregatorStub.getPublicationPayload(ver, providerSlackChannel)) ?? undefined;
+	const originalPayload = await aggregatorStub.getPublicationPayload(ver, providerSlackChannel);
 	const originalSummary = originalPayload ? getPublicationSummaryForPayload(originalPayload, env) : '';
 	const updatedSummary = appendVerificationStatusToProviderPublicationSummary(
 		originalSummary || `Verification results for *${ver.consumerName}*`,

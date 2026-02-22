@@ -291,6 +291,19 @@ describe('Pact Slack Aggregator Worker', () => {
 		});
 	});
 
+	describe('Manual trigger-daily endpoint', () => {
+		it('should perform daily maintenance when triggered', async () => {
+			const response = await dailyTrigger();
+			expect(response.status).toBe(200);
+			expect(await response.text()).toBe('Daily maintenance completed');
+		});
+
+		it('should reject trigger request with wrong key', async () => {
+			const response = await SELF.fetch('https://example.com/trigger-daily?key=wrong');
+			expect(response.status).toBe(401);
+		});
+	});
+
 	describe('Scheduled event', () => {
 		it('should handle scheduled events correctly', async () => {
 			const ctx = createExecutionContext();
@@ -1481,4 +1494,8 @@ async function sendEventWithEnvOverride(event: PactWebhookPayload, envOverride: 
 
 async function trigger() {
 	return await SELF.fetch(`https://example.com/trigger?key=${env.DEBUG_KEY}`);
+}
+
+async function dailyTrigger() {
+	return await SELF.fetch(`https://example.com/trigger-daily?key=${env.DEBUG_KEY}`);
 }

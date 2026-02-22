@@ -12,7 +12,7 @@ import type {
 import { getPactVersionFromPayload } from './payload-utils';
 import { CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from './constants';
 import { DAY_MS } from './constants';
-import { coerceInt, getPacticipantMasterBranch } from './utils';
+import { coerceInt, isMasterBranch } from './utils';
 
 interface DeprecationGroupEntry {
 	key: string;
@@ -183,13 +183,11 @@ export class PactAggregator extends DurableObject<Env> {
 	 * - For the 'master' branch, keep the latest 2 versions (latest and production).
 	 * - For any other identified branch, keep only the latest version.
 	 * - For empty or unidentified branches, no deprecation is applied (keep all).
-	 * @param branch The branch name
-	 * @returns The number of threads to keep, or undefined if the branch is not specified
 	 */
-	private getDeprecationKeepCount(pacticipant: string, branch: string): number | undefined {
+	private getDeprecationKeepCount(payload: ContractRequiringVerificationPublishedPayload): number | undefined {
+		const branch = payload.consumerVersionBranch ?? '';
 		if (!branch) return undefined;
-		const masterBranch = getPacticipantMasterBranch(this.env, pacticipant);
-		return branch === masterBranch ? 2 : 1;
+		return isMasterBranch(this.env, payload.consumerName, payload.consumerVersionBranch) ? 2 : 1;
 	}
 
 	private selectDeprecatedCandidatesFromGroupEntries(
@@ -228,9 +226,7 @@ export class PactAggregator extends DurableObject<Env> {
 		currentInfo: PublicationThreadInfo,
 		currentTime: number,
 	) {
-		const branch = pub.consumerVersionBranch ?? '';
-
-		const keepCount = this.getDeprecationKeepCount(pub.consumerName, branch);
+		const keepCount = this.getDeprecationKeepCount(pub);
 		if (!keepCount) return [];
 		const groupEntries: DeprecationGroupEntry[] = [];
 
@@ -238,8 +234,8 @@ export class PactAggregator extends DurableObject<Env> {
 			if (!existingKey.endsWith(`|${channel}`)) continue;
 			if (info!.payload.providerName !== pub.providerName) continue;
 			if (info!.payload.consumerName !== pub.consumerName) continue;
-			if (info!.payload.consumerVersionBranch !== branch) continue;
-			groupEntries.push({ key: existingKey, info: info!, updatedTime: this.getThreadUpdatedTime(info!) });
+			if (info!.payload.consumerVersionBranch !== pub.consumerVersionBranch) continue;
+			groupEntries.push({ key: existingKey, info: info!, updatedTime: Number(info!.updatedTs) });
 		}
 
 		// Include the newly published pact version as the newest entry.
@@ -542,17 +538,6 @@ export class PactAggregator extends DurableObject<Env> {
 	private async getAllPublicationThreads(): Promise<Record<string, PublicationThreadInfo | undefined>> {
 		const threads: Record<string, PublicationThreadInfo | undefined> = (await this.ctx.storage.get('publicationThreads')) ?? {};
 		return threads;
-	}
-
-	private getThreadUpdatedTime(info: PublicationThreadInfo): number {
-		const candidate = info.updatedTs;
-		const numeric = Number(candidate);
-		if (Number.isFinite(numeric)) return numeric;
-		if (candidate) {
-			const parsed = Date.parse(candidate);
-			if (Number.isFinite(parsed)) return parsed;
-		}
-		return 0;
 	}
 
 	/**

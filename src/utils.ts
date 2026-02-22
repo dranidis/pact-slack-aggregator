@@ -37,35 +37,16 @@ export function extractPactUrlFromVerificationUrl(verificationResultUrl: string)
  * @returns
  */
 export function coerceInt(value: unknown, fallback: number, opts: { min: number }): number {
-	const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+	const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
 	if (!Number.isFinite(n)) return fallback;
 	const i = Math.floor(n);
 	if (i < opts.min) return Math.max(opts.min, fallback);
 	return i;
 }
 
-function coerceStringRecord(value: unknown): Record<string, string> | undefined {
-	if (!value) return undefined;
-	if (typeof value === 'string') {
-		try {
-			const parsed: unknown = JSON.parse(value);
-			if (parsed && typeof parsed === 'object') {
-				return parsed as Record<string, string>;
-			}
-		} catch {
-			return undefined;
-		}
-		return undefined;
-	}
-	if (typeof value === 'object') {
-		return value as Record<string, string>;
-	}
-	return undefined;
-}
-
 interface MasterBranchEnv {
 	DEFAULT_MASTER_BRANCH?: string;
-	PACTICIPANT_MASTER_BRANCH_EXCEPTIONS?: unknown;
+	PACTICIPANT_MASTER_BRANCH_EXCEPTIONS?: Record<string, string>;
 }
 
 /**
@@ -76,12 +57,14 @@ interface MasterBranchEnv {
  * 2) env.DEFAULT_MASTER_BRANCH
  * 3) 'master'
  */
-export function getPacticipantMasterBranch(env: MasterBranchEnv, pacticipant: string): string {
+function getPacticipantMasterBranch(env: MasterBranchEnv, pacticipant: string): string {
 	const defaultBranch = (env.DEFAULT_MASTER_BRANCH ?? 'master').trim();
-	const exceptions = coerceStringRecord(env.PACTICIPANT_MASTER_BRANCH_EXCEPTIONS);
+	const exceptions = env.PACTICIPANT_MASTER_BRANCH_EXCEPTIONS;
 	const exception = exceptions?.[pacticipant];
-	if (typeof exception === 'string' && exception.trim()) {
-		return exception.trim();
-	}
+	if (exception) return exception;
 	return defaultBranch;
+}
+
+export function isMasterBranch(env: MasterBranchEnv, pacticipant: string, branch: string): boolean {
+	return branch === getPacticipantMasterBranch(env, pacticipant);
 }

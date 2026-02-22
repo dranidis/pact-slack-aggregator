@@ -398,8 +398,25 @@ describe('PactAggregator', () => {
 				consumerVersionNumber: 'sha-v1',
 				pactUrl: 'https://example.com/pacts/provider/API/consumer/UI/pact-version/pact-v1',
 			});
+			const pubV11 = makeContractPublicationPayload({
+				providerName: 'APIother',
+				consumerName: 'UI',
+				consumerVersionBranch: 'feature/xyz',
+				consumerVersionNumber: 'sha-v1',
+				pactUrl: 'https://example.com/pacts/provider/APIother/consumer/UI/pact-version/pact-v1',
+			});
+			const pubV12 = makeContractPublicationPayload({
+				providerName: 'API',
+				consumerName: 'UIother',
+				consumerVersionBranch: 'feature/xyz',
+				consumerVersionNumber: 'sha-v1',
+				pactUrl: 'https://example.com/pacts/provider/API/consumer/UIother/pact-version/pact-v1',
+			});
+
 			mockTime(() => 0);
 			await aggregator.upsertPublicationThreadInfo(pubV1, channel, 'TS_V1', channelId);
+			await aggregator.upsertPublicationThreadInfo(pubV11, channel, 'TS_V1', channelId);
+			await aggregator.upsertPublicationThreadInfo(pubV12, channel, 'TS_V1', channelId);
 
 			const pubV2 = makeContractPublicationPayload({
 				providerName: 'API',
