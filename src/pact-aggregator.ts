@@ -109,55 +109,6 @@ export class PactAggregator extends DurableObject<Env> {
 		}
 	}
 
-	/**
-	 * Process the event buckets
-	 * @returns An array of events to be sent
-	 */
-	async getEventsToPublish(): Promise<StoredPactEventData[]> {
-		try {
-			const currentTime = now();
-			const currentMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS);
-
-			// Step 1: Consolidate events by pacticipantVersionNumber before processing
-			await this.consolidateEvents(currentTime);
-
-			const allEvents = await this.getEvents();
-
-			let eventsToSend: StoredPactEventData[] = [];
-			const bucketsToDelete: string[] = [];
-
-			// Process all buckets except current minute
-			for (const [bucketKey, eventList] of allEvents.entries()) {
-				const bucketMinute = this.getMinuteFromBucketKey(bucketKey);
-
-				if (bucketMinute.toString() !== currentMinute) {
-					eventsToSend = eventsToSend.concat(eventList);
-					bucketsToDelete.push(bucketKey);
-				}
-			}
-
-			// Remove processed buckets
-			for (const key of bucketsToDelete) {
-				allEvents.delete(key);
-			}
-
-			// Persist updated state
-			await this.setLastProcessTime(currentTime);
-
-			if (bucketsToDelete.length > 0) {
-				await this.setEvents(allEvents);
-				await this.updateProcessingStats(eventsToSend.length);
-
-				console.log(`Processed ${eventsToSend.length} events from ${bucketsToDelete.length} buckets`);
-			}
-
-			return eventsToSend;
-		} catch (err) {
-			console.error('Error processing batches:', err);
-			return [];
-		}
-	}
-
 	async getDebugInfo(): Promise<DebugInfo> {
 		const currentTime = now();
 		const lastEventTime = await this.getLastEventTime();
@@ -452,58 +403,6 @@ export class PactAggregator extends DurableObject<Env> {
 		}
 
 		return removedEntries;
-	}
-
-	/**
-	 * Finds deprecated publicationThreads entries in existing storage.
-	 *
-	 * Deprecated means: for the same provider+consumer+consumerVersionBranch+channelId,
-	 * there are multiple pact versions stored. Only the newest (by updatedTs) should remain.
-	 *
-	 * This is intended as a one-off production cleanup for deployments that already have
-	 * duplicated/superseded pact threads stored.
-	 */
-	async findDeprecatedPublicationThreads(limit?: number): Promise<PublicationThreadEntry[]> {
-		const threads = await this.getAllPublicationThreads();
-		const entries: PublicationThreadEntry[] = Object.entries(threads)
-			.map(([key, info]) => (info ? { key, info } : undefined))
-			.filter((x): x is PublicationThreadEntry => Boolean(x));
-
-		if (entries.length === 0) return [];
-
-		const groups = new Map<string, PublicationThreadEntry[]>();
-		for (const entry of entries) {
-			const groupKey = `${entry.info.payload.providerName}|${entry.info.payload.consumerName}|${entry.info.payload.consumerVersionBranch}|${entry.info.channelId}`;
-			const group = groups.get(groupKey);
-			if (group) {
-				group.push(entry);
-			} else {
-				groups.set(groupKey, [entry]);
-			}
-		}
-
-		const deprecated: PublicationThreadEntry[] = [];
-		for (const groupEntries of groups.values()) {
-			const consumerName = groupEntries[0]?.info.payload.consumerName ?? '';
-			const branch = groupEntries[0]?.info.payload.consumerVersionBranch ?? '';
-			const keepCount = this.getDeprecationKeepCount(consumerName, branch);
-			if (!keepCount) continue;
-
-			const selectionEntries: DeprecationGroupEntry[] = groupEntries.map((e) => {
-				return {
-					key: e.key,
-					info: e.info,
-					updatedTime: this.getThreadUpdatedTime(e.info),
-				};
-			});
-			const selected = this.selectDeprecatedCandidatesFromGroupEntries(selectionEntries, keepCount);
-			for (const entry of selected) {
-				deprecated.push(entry);
-				if (limit && deprecated.length >= limit) return deprecated;
-			}
-		}
-
-		return deprecated;
 	}
 
 	async removePublicationThreadKeys(keys: string[]): Promise<number> {

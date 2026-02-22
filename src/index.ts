@@ -56,58 +56,6 @@ export default {
 			return new Response('Processing completed', { status: 200 });
 		}
 
-		if (url.pathname === '/trigger-deprecate') {
-			if (url.searchParams.get('key') !== env.DEBUG_KEY) {
-				return new Response('Unauthorized', { status: 401 });
-			}
-			const apply = url.searchParams.get('apply') === 'true';
-			const limitParam = url.searchParams.get('limit');
-			const limit = limitParam ? Number(limitParam) : undefined;
-			if (limitParam && (!Number.isFinite(limit) || (limit ?? 0) <= 0)) {
-				return new Response('Invalid limit', { status: 400 });
-			}
-			if (apply && !limitParam) {
-				return new Response('limit is required when apply=true', { status: 400 });
-			}
-
-			const deprecated = await aggregatorStub.findDeprecatedPublicationThreads(limit);
-			if (!apply) {
-				return new Response(
-					JSON.stringify(
-						{
-							apply: false,
-							deprecatedCount: deprecated.length,
-							deprecated: deprecated.map((e) => ({
-								key: e.key,
-								consumerVersionBranch: e.info.payload.consumerVersionBranch,
-								consumerVersionNumber: e.info.payload.consumerVersionNumber ? e.info.payload.consumerVersionNumber.slice(0, 8) : undefined,
-							})),
-						},
-						null,
-						2,
-					),
-					{ headers: { 'Content-Type': 'application/json' } },
-				);
-			}
-
-			const { removedKeys, slackFailures } = await notifySlackAboutDeprecatedThreadEntries(env, deprecated);
-			const removedCount = await aggregatorStub.removePublicationThreadKeys(removedKeys);
-			return new Response(
-				JSON.stringify(
-					{
-						apply: true,
-						deprecatedCount: deprecated.length,
-						slackFailures,
-						removedCount,
-						removedKeys,
-					},
-					null,
-					2,
-				),
-				{ headers: { 'Content-Type': 'application/json' } },
-			);
-		}
-
 		if (url.pathname === '/trigger-daily') {
 			if (url.searchParams.get('key') !== env.DEBUG_KEY) {
 				return new Response('Unauthorized', { status: 401 });
@@ -468,7 +416,7 @@ async function processEventsForPublication(env: Env) {
 		const aggregatorStub = getPactAggregatorStub(env);
 		const { events, bucketsToDelete } = await aggregatorStub.peekEventsToPublish();
 
-		if (events.length === 0) return;
+		if (events.length === 0 && bucketsToDelete.length === 0) return;
 
 		await postMessagesForEventsToSlack(env, events);
 		await aggregatorStub.ackPublishedBuckets(bucketsToDelete, events.length);
@@ -480,6 +428,8 @@ async function processEventsForPublication(env: Env) {
 
 async function postMessagesForEventsToSlack(env: Env, events: StoredPactEventData[]) {
 	// Group events by pacticipant version number
+	if (events.length === 0) return;
+
 	const grouped = events.reduce((acc: Record<string, StoredPactEventData[]>, e: StoredPactEventData) => {
 		const key = `${e.pacticipant}:${e.pacticipantVersionNumber}`;
 		acc[key] = acc[key] || [];

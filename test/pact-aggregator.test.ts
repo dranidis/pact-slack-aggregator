@@ -82,25 +82,12 @@ describe('PactAggregator', () => {
 		});
 	});
 
-	describe('getEventsToPublish', () => {
-		it('should process events correctly', async () => {
-			const testEvent = makeProviderVerificationEventData({
-				providerName: 'TestProvider',
-			});
-
-			// Add an event first
-			await aggregator.addEvent(testEvent);
-
-			// Process batches
-			const result = await aggregator.getEventsToPublish();
-
-			// Should return array of processed events
-			expect(Array.isArray(result)).toBe(true);
-		});
-
+	describe('peekEventsToPublish & ackPublishedBuckets', () => {
 		it('should return empty result when no events to process', async () => {
-			const result = await aggregator.getEventsToPublish();
-			expect(result).toEqual([]);
+			// const result = await aggregator.getEventsToPublish();
+			const result = await aggregator.peekEventsToPublish();
+			expect(result.events).toEqual([]);
+			expect(result.bucketsToDelete).toEqual([]);
 		});
 
 		it('should process events from previous minute buckets but not current minute', async () => {
@@ -125,15 +112,18 @@ describe('PactAggregator', () => {
 			});
 			await aggregator.addEvent(currentEvent);
 
-			// Process events
-			const result = await aggregator.getEventsToPublish();
+			// Peek events to publish
+			const result = await aggregator.peekEventsToPublish();
 
 			// Should only return the past event, not the current minute event
-			expect(result).toHaveLength(1);
-			expect(result[0]).toMatchObject({
+			expect(result.events).toHaveLength(1);
+			expect(result.events[0]).toMatchObject({
 				pacticipant: 'PastProvider',
 				pacticipantVersionNumber: '1.0.0',
 			});
+
+			// Ack the processed buckets to delete them
+			await aggregator.ackPublishedBuckets(result.bucketsToDelete, result.events.length);
 
 			// Verify the past bucket was removed
 			const debugData = await aggregator.getDebugInfo();
@@ -166,10 +156,15 @@ describe('PactAggregator', () => {
 			await aggregator.addEvent(currentEvent);
 
 			// Process events - this should consolidate the events
-			const result = await aggregator.getEventsToPublish();
+			const result = await aggregator.peekEventsToPublish();
 
 			// Should not return any events because they were consolidated to current bucket
-			expect(result).toHaveLength(0);
+			expect(result.events).toHaveLength(0);
+
+			expect(result.bucketsToDelete).toHaveLength(1); // Previous bucket should be marked for deletion
+
+			// Ack the processed buckets to delete them
+			await aggregator.ackPublishedBuckets(result.bucketsToDelete, result.events.length);
 
 			// Verify both events are now in the current bucket
 			const debugData = await aggregator.getDebugInfo();
@@ -201,10 +196,10 @@ describe('PactAggregator', () => {
 			await aggregator.addEvent(currentEvent);
 
 			// Process events
-			const result = await aggregator.getEventsToPublish();
+			const result = await aggregator.peekEventsToPublish();
 
 			// Should consolidate the recent event due to quiet period logic
-			expect(result).toHaveLength(0);
+			expect(result.events).toHaveLength(0);
 
 			const debugData = await aggregator.getDebugInfo();
 			expect(debugData.totalEvents).toBe(2); // Both events consolidated
@@ -308,16 +303,18 @@ describe('PactAggregator', () => {
 			});
 			await aggregator.addEvent(currentEvent);
 
-			// Process events
-			const result = await aggregator.getEventsToPublish();
+			// Peek events to publish
+			const result = await aggregator.peekEventsToPublish();
 
 			// Should process the old event because it exceeds max time
-			expect(result).toHaveLength(1);
-			expect(result[0]).toMatchObject({
+			expect(result.events).toHaveLength(1);
+			expect(result.events[0]).toMatchObject({
 				pacticipant: 'OldProvider',
 				pacticipantVersionNumber: '3.0.0',
 				ts: oldTime,
 			});
+
+			await aggregator.ackPublishedBuckets(result.bucketsToDelete, result.events.length);
 
 			const debugData = await aggregator.getDebugInfo();
 			expect(debugData.totalEvents).toBe(1); // Only current event remains
@@ -347,7 +344,8 @@ describe('PactAggregator', () => {
 			await aggregator.addEvent(currentEvent);
 
 			// Verify consolidation happens when processing
-			await aggregator.getEventsToPublish();
+			const result = await aggregator.peekEventsToPublish();
+			await aggregator.ackPublishedBuckets(result.bucketsToDelete, result.events.length);
 
 			const debugData = await aggregator.getDebugInfo();
 			// Should consolidate both events into current bucket

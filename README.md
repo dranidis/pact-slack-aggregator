@@ -33,7 +33,6 @@
   - `GET /debug?key=...&clearPublicationThreads=true` clears only publication-thread metadata.
   - `GET /trigger?key=...` manually triggers a publish cycle (useful locally since cron doesn’t run in `wrangler dev`).
   - `GET /trigger-daily?key=...` runs the daily maintenance job.
-  - `GET /trigger-deprecate?key=...` finds deprecated publication-thread entries (same branch rules as above). Use `&apply=true&limit=N` to post the deprecation notices in Slack and remove the deprecated entries from Durable Object storage.
 
 ## Setup
 
