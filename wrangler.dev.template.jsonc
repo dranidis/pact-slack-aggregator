@@ -13,6 +13,9 @@
 	"vars": {
 		"SLACK_CHANNEL": "#your-dev-channel",
 		"PROVIDER_CHANNEL_PREFIX": "#pact-",
+		"MAX_MESSAGES_PER_PACT_IN_THREAD": 100,
+		"DEFAULT_MASTER_BRANCH": "master",
+		"PACTICIPANT_MASTER_BRANCH_EXCEPTIONS": { "SomeService": "main" },
 		"GITHUB_BASE_URL": "https://github.com/your-org",
 		"PACTICIPANT_TO_REPO_MAP": { "ServiceA": "repo-a", "ServiceB": "repo-b" },
 		"TIMEZONE": "UTC",

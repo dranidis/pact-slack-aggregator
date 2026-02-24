@@ -3,7 +3,7 @@
  */
 
 // Default implementation uses Date.now()
-let getCurrentTime = (): number => Date.now();
+let getCurrentTime: () => number;
 resetTime();
 
 /**
@@ -33,4 +33,3 @@ export function resetTime(): void {
 export function getMinuteBucket(timestamp: number, bucketDuration: number): string {
 	return Math.floor(timestamp / bucketDuration).toString();
 }
-

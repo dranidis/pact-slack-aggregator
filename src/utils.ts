@@ -37,9 +37,34 @@ export function extractPactUrlFromVerificationUrl(verificationResultUrl: string)
  * @returns
  */
 export function coerceInt(value: unknown, fallback: number, opts: { min: number }): number {
-	const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+	const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
 	if (!Number.isFinite(n)) return fallback;
 	const i = Math.floor(n);
 	if (i < opts.min) return Math.max(opts.min, fallback);
 	return i;
+}
+
+interface MasterBranchEnv {
+	DEFAULT_MASTER_BRANCH?: string;
+	PACTICIPANT_MASTER_BRANCH_EXCEPTIONS?: Record<string, string>;
+}
+
+/**
+ * Returns the configured "master" (default) branch name for a given pacticipant.
+ *
+ * Resolution order:
+ * 1) env.PACTICIPANT_MASTER_BRANCH_EXCEPTIONS[pacticipant]
+ * 2) env.DEFAULT_MASTER_BRANCH
+ * 3) 'master'
+ */
+function getPacticipantMasterBranch(env: MasterBranchEnv, pacticipant: string): string {
+	const defaultBranch = (env.DEFAULT_MASTER_BRANCH ?? 'master').trim();
+	const exceptions = env.PACTICIPANT_MASTER_BRANCH_EXCEPTIONS;
+	const exception = exceptions?.[pacticipant];
+	if (exception) return exception;
+	return defaultBranch;
+}
+
+export function isMasterBranch(env: MasterBranchEnv, pacticipant: string, branch: string): boolean {
+	return branch === getPacticipantMasterBranch(env, pacticipant);
 }

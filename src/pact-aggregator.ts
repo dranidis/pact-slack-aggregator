@@ -12,7 +12,7 @@ import type {
 import { getPactVersionFromPayload } from './payload-utils';
 import { CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from './constants';
 import { DAY_MS } from './constants';
-import { coerceInt } from './utils';
+import { coerceInt, isMasterBranch } from './utils';
 
 interface DeprecationGroupEntry {
 	key: string;
@@ -109,55 +109,6 @@ export class PactAggregator extends DurableObject<Env> {
 		}
 	}
 
-	/**
-	 * Process the event buckets
-	 * @returns An array of events to be sent
-	 */
-	async getEventsToPublish(): Promise<StoredPactEventData[]> {
-		try {
-			const currentTime = now();
-			const currentMinute = getMinuteBucket(currentTime, this.env.MINUTE_BUCKET_MS);
-
-			// Step 1: Consolidate events by pacticipantVersionNumber before processing
-			await this.consolidateEvents(currentTime);
-
-			const allEvents = await this.getEvents();
-
-			let eventsToSend: StoredPactEventData[] = [];
-			const bucketsToDelete: string[] = [];
-
-			// Process all buckets except current minute
-			for (const [bucketKey, eventList] of allEvents.entries()) {
-				const bucketMinute = this.getMinuteFromBucketKey(bucketKey);
-
-				if (bucketMinute.toString() !== currentMinute) {
-					eventsToSend = eventsToSend.concat(eventList);
-					bucketsToDelete.push(bucketKey);
-				}
-			}
-
-			// Remove processed buckets
-			for (const key of bucketsToDelete) {
-				allEvents.delete(key);
-			}
-
-			// Persist updated state
-			await this.setLastProcessTime(currentTime);
-
-			if (bucketsToDelete.length > 0) {
-				await this.setEvents(allEvents);
-				await this.updateProcessingStats(eventsToSend.length);
-
-				console.log(`Processed ${eventsToSend.length} events from ${bucketsToDelete.length} buckets`);
-			}
-
-			return eventsToSend;
-		} catch (err) {
-			console.error('Error processing batches:', err);
-			return [];
-		}
-	}
-
 	async getDebugInfo(): Promise<DebugInfo> {
 		const currentTime = now();
 		const lastEventTime = await this.getLastEventTime();
@@ -214,6 +165,7 @@ export class PactAggregator extends DurableObject<Env> {
 			payload: pub, // always store latest payload
 			updatedTs: currentTimeString,
 			createdTs: existing?.createdTs ?? currentTimeString,
+			replyCount: existing?.replyCount ?? 0,
 		};
 
 		const deprecatedCandidates =
@@ -226,9 +178,16 @@ export class PactAggregator extends DurableObject<Env> {
 		return deprecatedCandidates;
 	}
 
-	private getDeprecationKeepCount(branch: string): number | undefined {
+	/**
+	 * Determines the number of publication threads to keep for a given branch.
+	 * - For the 'master' branch, keep the latest 2 versions (latest and production).
+	 * - For any other identified branch, keep only the latest version.
+	 * - For empty or unidentified branches, no deprecation is applied (keep all).
+	 */
+	private getDeprecationKeepCount(payload: ContractRequiringVerificationPublishedPayload): number | undefined {
+		const branch = payload.consumerVersionBranch ?? '';
 		if (!branch) return undefined;
-		return branch === 'master' ? 2 : 1;
+		return isMasterBranch(this.env, payload.consumerName, payload.consumerVersionBranch) ? 2 : 1;
 	}
 
 	private selectDeprecatedCandidatesFromGroupEntries(
@@ -255,7 +214,7 @@ export class PactAggregator extends DurableObject<Env> {
 	 * Each branch should have only the latest pact version.
 	 * Exceptions:
 	 *
-	 * - master 2 versions (latest and production)
+	 * - configured "master" branch: keep 2 versions (latest and production)
 	 * - empty branch (not identified)
 	 *
 	 */
@@ -267,9 +226,7 @@ export class PactAggregator extends DurableObject<Env> {
 		currentInfo: PublicationThreadInfo,
 		currentTime: number,
 	) {
-		const branch = pub.consumerVersionBranch ?? '';
-
-		const keepCount = this.getDeprecationKeepCount(branch);
+		const keepCount = this.getDeprecationKeepCount(pub);
 		if (!keepCount) return [];
 		const groupEntries: DeprecationGroupEntry[] = [];
 
@@ -277,8 +234,8 @@ export class PactAggregator extends DurableObject<Env> {
 			if (!existingKey.endsWith(`|${channel}`)) continue;
 			if (info!.payload.providerName !== pub.providerName) continue;
 			if (info!.payload.consumerName !== pub.consumerName) continue;
-			if (info!.payload.consumerVersionBranch !== branch) continue;
-			groupEntries.push({ key: existingKey, info: info!, updatedTime: this.getThreadUpdatedTime(info!) });
+			if (info!.payload.consumerVersionBranch !== pub.consumerVersionBranch) continue;
+			groupEntries.push({ key: existingKey, info: info!, updatedTime: Number(info!.updatedTs) });
 		}
 
 		// Include the newly published pact version as the newest entry.
@@ -303,13 +260,19 @@ export class PactAggregator extends DurableObject<Env> {
 		return threads[key]?.ts;
 	}
 
-	async touchPublicationThreadUpdateTs(pub: PactWebhookPayload, channel: string): Promise<void> {
+	/**
+	 * Updates the last updated timestamp and increments the reply count for a publication thread.
+	 */
+	async updatePublicationThread(pub: PactWebhookPayload, channel: string): Promise<void> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads = await this.getAllPublicationThreads();
-		if (threads[key]) {
-			threads[key].updatedTs = now().toString();
-			await this.ctx.storage.put('publicationThreads', threads);
-		}
+		const info = threads[key];
+		if (!info) return;
+
+		info.updatedTs = now().toString();
+		const current = typeof info.replyCount === 'number' ? info.replyCount : 0;
+		info.replyCount = current + 1;
+		await this.ctx.storage.put('publicationThreads', threads);
 	}
 
 	async getPublicationPayload(pub: PactWebhookPayload, channel: string): Promise<PactWebhookPayload | undefined> {
@@ -322,6 +285,46 @@ export class PactAggregator extends DurableObject<Env> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads = await this.getAllPublicationThreads();
 		return threads[key]?.channelId;
+	}
+
+	async getPublicationThreadReplyCount(pub: PactWebhookPayload, channel: string): Promise<number | undefined> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads = await this.getAllPublicationThreads();
+		return threads[key]?.replyCount;
+	}
+
+	async setPublicationThreadReplyCount(pub: PactWebhookPayload, channel: string, replyCount: number): Promise<void> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads = await this.getAllPublicationThreads();
+		const info = threads[key];
+		if (!info) return;
+		info.replyCount = replyCount;
+		await this.ctx.storage.put('publicationThreads', threads);
+	}
+
+	/**
+	 * Rotates the stored publication thread to a new Slack root message ts.
+	 * Deletes the existing entry and recreates it with replyCount reset to 0.
+	 */
+	async rotatePublicationThread(pub: PactWebhookPayload, channel: string, newThreadTs: string, channelId: string): Promise<void> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads = await this.getAllPublicationThreads();
+		const existing = threads[key];
+		if (!existing) return;
+
+		// Remove old entry then create a fresh one so legacy fields don't linger.
+		delete threads[key];
+
+		const currentTimeString = now().toString();
+		threads[key] = {
+			ts: newThreadTs,
+			channelId,
+			payload: existing.payload,
+			createdTs: currentTimeString,
+			updatedTs: currentTimeString,
+			replyCount: 0,
+		};
+		await this.ctx.storage.put('publicationThreads', threads);
 	}
 
 	/**
@@ -396,57 +399,6 @@ export class PactAggregator extends DurableObject<Env> {
 		}
 
 		return removedEntries;
-	}
-
-	/**
-	 * Finds deprecated publicationThreads entries in existing storage.
-	 *
-	 * Deprecated means: for the same provider+consumer+consumerVersionBranch+channelId,
-	 * there are multiple pact versions stored. Only the newest (by updatedTs) should remain.
-	 *
-	 * This is intended as a one-off production cleanup for deployments that already have
-	 * duplicated/superseded pact threads stored.
-	 */
-	async findDeprecatedPublicationThreads(limit?: number): Promise<PublicationThreadEntry[]> {
-		const threads = await this.getAllPublicationThreads();
-		const entries: PublicationThreadEntry[] = Object.entries(threads)
-			.map(([key, info]) => (info ? { key, info } : undefined))
-			.filter((x): x is PublicationThreadEntry => Boolean(x));
-
-		if (entries.length === 0) return [];
-
-		const groups = new Map<string, PublicationThreadEntry[]>();
-		for (const entry of entries) {
-			const groupKey = `${entry.info.payload.providerName}|${entry.info.payload.consumerName}|${entry.info.payload.consumerVersionBranch}|${entry.info.channelId}`;
-			const group = groups.get(groupKey);
-			if (group) {
-				group.push(entry);
-			} else {
-				groups.set(groupKey, [entry]);
-			}
-		}
-
-		const deprecated: PublicationThreadEntry[] = [];
-		for (const groupEntries of groups.values()) {
-			const branch = groupEntries[0]?.info.payload.consumerVersionBranch ?? '';
-			const keepCount = this.getDeprecationKeepCount(branch);
-			if (!keepCount) continue;
-
-			const selectionEntries: DeprecationGroupEntry[] = groupEntries.map((e) => {
-				return {
-					key: e.key,
-					info: e.info,
-					updatedTime: this.getThreadUpdatedTime(e.info),
-				};
-			});
-			const selected = this.selectDeprecatedCandidatesFromGroupEntries(selectionEntries, keepCount);
-			for (const entry of selected) {
-				deprecated.push(entry);
-				if (limit && deprecated.length >= limit) return deprecated;
-			}
-		}
-
-		return deprecated;
 	}
 
 	async removePublicationThreadKeys(keys: string[]): Promise<number> {
@@ -586,17 +538,6 @@ export class PactAggregator extends DurableObject<Env> {
 	private async getAllPublicationThreads(): Promise<Record<string, PublicationThreadInfo | undefined>> {
 		const threads: Record<string, PublicationThreadInfo | undefined> = (await this.ctx.storage.get('publicationThreads')) ?? {};
 		return threads;
-	}
-
-	private getThreadUpdatedTime(info: PublicationThreadInfo): number {
-		const candidate = info.updatedTs;
-		const numeric = Number(candidate);
-		if (Number.isFinite(numeric)) return numeric;
-		if (candidate) {
-			const parsed = Date.parse(candidate);
-			if (Number.isFinite(parsed)) return parsed;
-		}
-		return 0;
 	}
 
 	/**

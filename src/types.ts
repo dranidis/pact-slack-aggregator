@@ -1,5 +1,4 @@
 import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from './constants';
-// ...existing code...
 
 export interface BasePactWebhookPayload {
 	eventType: typeof PROVIDER_VERIFICATION_PUBLISHED | typeof CONTRACT_REQUIRING_VERIFICATION_PUBLISHED;
@@ -28,12 +27,12 @@ export interface ContractRequiringVerificationPublishedPayload extends BasePactW
 
 export type PactWebhookPayload = ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload;
 
-export interface ProviderVerificationEventData extends ProviderVerificationPublishedPayload {
+interface ProviderVerificationEventData extends ProviderVerificationPublishedPayload {
 	pacticipant: string;
 	pacticipantVersionNumber: string;
 }
 
-export interface ContractRequiringVerificationEventData extends ContractRequiringVerificationPublishedPayload {
+interface ContractRequiringVerificationEventData extends ContractRequiringVerificationPublishedPayload {
 	pacticipant: string;
 	pacticipantVersionNumber: string;
 }
@@ -54,10 +53,29 @@ export interface PublicationThreadInfo {
 	ts: string; // root message timestamp
 	createdTs: string; // creation timestamp
 	updatedTs: string; // latest update message timestamp
+	/**
+	 * Number of replies in the thread.
+	 * Optional for backwards compatibility: older Durable Object entries won't have it.
+	 */
+	replyCount?: number;
 	channelId: string; // Slack channel Id
 	// Store the original webhook payload that created the root message so we can derive summary text later
 	payload: PactWebhookPayload;
 	// Legacy field kept for backward compatibility (existing stored entries before refactor)
+}
+
+interface SlackConversationReplyMessage {
+	ts: string;
+	thread_ts?: string;
+	reply_count?: number;
+}
+
+export interface SlackConversationsRepliesResponse {
+	ok: boolean;
+	messages?: SlackConversationReplyMessage[];
+	error?: string;
+	needed?: string;
+	provided?: string;
 }
 
 export interface PublicationThreadEntry {
@@ -109,19 +127,4 @@ export interface SlackPostMessageResponse {
 	provided?: string;
 	thread_ts?: string;
 	text?: string;
-}
-
-// chat.delete request/response (similar shape, but no text field in request)
-export interface SlackDeleteMessageRequest {
-	channel: string;
-	ts: string;
-}
-
-export interface SlackDeleteMessageResponse {
-	ok: boolean;
-	error?: string;
-	needed?: string;
-	provided?: string;
-	channel?: string;
-	ts?: string;
 }

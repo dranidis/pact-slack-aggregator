@@ -1,13 +1,12 @@
 import type {
-	SlackDeleteMessageRequest,
-	SlackDeleteMessageResponse,
+	SlackConversationsRepliesResponse,
 	SlackPostMessageRequest,
 	SlackPostMessageResponse,
 	SlackUpdateMessageRequest,
 } from './types';
 
 // Minimal environment interface for Slack operations
-export interface SlackEnv {
+interface SlackEnv {
 	SLACK_CHANNEL: string;
 	SLACK_TOKEN: string;
 }
@@ -37,10 +36,7 @@ export async function slackPost(slackEnv: SlackEnv, text: string, threadTs?: str
 
 	const res = await fetch('https://slack.com/api/chat.postMessage', {
 		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
-			'Content-Type': 'application/json',
-		},
+		headers: createSlackHeaders(slackEnv),
 		body: JSON.stringify(body),
 	});
 	const json: SlackPostMessageResponse = await res.json();
@@ -68,10 +64,7 @@ export async function slackUpdate(slackEnv: SlackEnv, ts: string, newText: strin
 
 	const res = await fetch('https://slack.com/api/chat.update', {
 		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
-			'Content-Type': 'application/json',
-		},
+		headers: createSlackHeaders(slackEnv),
 		body: JSON.stringify(body),
 	});
 	const json: SlackPostMessageResponse = await res.json();
@@ -89,29 +82,15 @@ export async function slackUpdate(slackEnv: SlackEnv, ts: string, newText: strin
 	return json;
 }
 
-export async function slackDelete(slackEnv: SlackEnv, ts: string): Promise<SlackDeleteMessageResponse> {
-	const body: SlackDeleteMessageRequest = { channel: slackEnv.SLACK_CHANNEL, ts };
-	const res = await fetch('https://slack.com/api/chat.delete', {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
-			'Content-Type': 'application/json',
-		},
-		body: JSON.stringify(body),
-	});
-	const json: SlackDeleteMessageResponse = await res.json();
-	if (json.ok) {
-		console.log('🗑️ Slack message deleted successfully', { ts: body.ts, channel: body.channel });
-	} else {
-		console.error('❌ Slack API Error (delete):', { error: json.error, channel: body.channel, ts: body.ts });
-	}
-	return json;
-}
-
-export async function slackFetchChannelMessages(slackEnv: SlackEnv, limit = 100): Promise<SlackPostMessageResponse> {
-	const url = new URL('https://slack.com/api/conversations.history');
+/**
+ * Fetches the reply count for a thread (parent message) using conversations.replies.
+ * Returns undefined on Slack API failures.
+ */
+export async function slackFetchThreadReplyCount(slackEnv: SlackEnv, threadTs: string): Promise<number | undefined> {
+	const url = new URL('https://slack.com/api/conversations.replies');
 	url.searchParams.append('channel', slackEnv.SLACK_CHANNEL);
-	url.searchParams.append('limit', limit.toString());
+	url.searchParams.append('ts', threadTs);
+	url.searchParams.append('limit', '1');
 
 	const res = await fetch(url.toString(), {
 		method: 'GET',
@@ -119,16 +98,24 @@ export async function slackFetchChannelMessages(slackEnv: SlackEnv, limit = 100)
 			Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
 		},
 	});
-	const json: SlackPostMessageResponse = await res.json();
+	const json: SlackConversationsRepliesResponse = await res.json();
 	if (!json.ok) {
-		console.error('❌ Slack API Error (fetch messages):', {
+		console.error('❌ Slack API Error (fetch thread replies):', {
 			error: json.error,
 			needed: json.needed,
 			provided: json.provided,
 			channel: slackEnv.SLACK_CHANNEL,
+			threadTs,
 		});
-	} else {
-		console.log('✅ Slack channel messages fetched successfully', { channel: slackEnv.SLACK_CHANNEL });
+		return undefined;
 	}
-	return json;
+
+	return json.messages?.[0]?.reply_count;
+}
+
+function createSlackHeaders(slackEnv: SlackEnv): HeadersInit | undefined {
+	return {
+		Authorization: `Bearer ${slackEnv.SLACK_TOKEN}`,
+		'Content-Type': 'application/json',
+	};
 }

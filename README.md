@@ -1,14 +1,38 @@
 # A cloudflare worker for aggregating pact broker events sent by pact-broker webhooks
 
-## Description
+## Features
 
-This application is a Cloudflare Worker designed to aggregate events from the company's Pact Broker. It processes webhook events, organizes them, and posts summaries to a specified Slack channel. The application leverages Durable Objects for stateful event aggregation and provides endpoints for debugging and manual processing.
-
-### Timing Details
-
-- **Quiet Period**: Events are aggregated over a quiet period of 10 seconds to ensure batching of related events.
-- **Event Bucketing**: Events are grouped into 1-minute buckets for efficient processing.
-- **Flushing Interval**: Events are flushed and processed if they remain unprocessed for more than 5 minutes.
+- **Pact Broker webhook ingestion**: Accepts Pact Broker webhook `POST` payloads (currently `contract_requiring_verification_published` and `provider_verification_published`) and converts them into normalized event records. Webhook requests are expected to include `?key=$DEBUG_KEY` (otherwise the worker responds `401`).
+- **Stateful aggregation via Durable Objects**: Uses a Durable Object (`PactAggregator`) to persist events and ensure serialized processing (no interleaving) per aggregator instance.
+- **Retry-friendly publishing**: Publishing uses a “peek then ack” flow, so if Slack posting fails the events are not deleted and will be retried on the next cron/trigger.
+- **Batching + bucketing**:
+  - Stores events in **minute buckets** (`MINUTE_BUCKET_MS`, default 60s).
+  - Enforces a **quiet period** (`QUIET_PERIOD_MS`, default 10s) so events arriving “right now” don’t get published prematurely.
+  - Consolidates events across adjacent buckets so that events for the same pacticipant/version are published together.
+  - Uses `MAX_TIME_BEFORE_FLUSHING` (default 5 minutes) as the consolidation window: recent events can be pulled forward into the current bucket for better grouping, but publishing still only includes completed buckets (everything except the current minute).
+- **Slack publishing (main channel)**:
+  - Posts a **summary message** per pacticipant version (counts of publications + verification successes/failures).
+  - Posts a **thread reply** containing the detailed publication/verification lines (including links to Pact and GitHub).
+- **Provider-specific Slack channels + per-contract threads**:
+  - On publication, posts a root summary to a provider channel derived from `PROVIDER_CHANNEL_PREFIX` (default `#pact-`) + provider name.
+  - On verification, posts results into the matching contract thread; verifications on the provider’s configured “master” branch (see `DEFAULT_MASTER_BRANCH` / `PACTICIPANT_MASTER_BRANCH_EXCEPTIONS`) also update the root message with the latest status.
+  - Supports **thread rotation** when a thread becomes too large (`MAX_MESSAGES_PER_PACT_IN_THREAD`), closing the old thread and opening a new one.
+  - **Deprecated pact handling (new publications)**: when a new `contract_requiring_verification_published` event is received for the same provider + consumer + consumer branch + provider channel, older pact versions are marked as deprecated and stop receiving updates:
+    - If `consumerVersionBranch` matches the consumer’s configured “master” branch, keep the **2 most recently updated** pact versions for that provider/consumer/branch/channel; deprecate the rest.
+    - If `consumerVersionBranch` is any other non-empty value, keep only the **most recently updated** pact version for that provider/consumer/branch/channel; deprecate the rest.
+    - If `consumerVersionBranch` is empty/unknown, branch-based deprecation is skipped (nothing is auto-deprecated on publish).
+    - Deprecation is communicated in Slack by replying `🧹 *Deprecated pact!*` in the old thread and updating the root summary message to include the same notice.
+- **Scheduled flushing with working-hours gating**:
+  - Designed to run from Cloudflare Cron every 2 minutes, but gated by local time (`TIMEZONE`) so it publishes frequently during working hours and less often off-hours/weekends.
+  - A daily cron runs maintenance (retention pruning for stored publication-thread metadata):
+    - Uses `RETENTION_MIN_PACT_VERSIONS` (default 10) and `RETENTION_RECENT_DAYS` (default 90) to remove _old_ publication-thread entries per provider/consumer/channel.
+    - When an entry is pruned, Slack is notified by replying `🦕 *Old pact!*` in that thread and updating the root summary message with the same notice so it’s clear the thread will no longer receive updates.
+- **Operational endpoints (guarded by `DEBUG_KEY`)**:
+  - `GET /debug?key=...` returns Durable Object state (event buckets, stats, stored publication threads).
+  - `GET /debug?key=...&clear=true` clears all stored state.
+  - `GET /debug?key=...&clearPublicationThreads=true` clears only publication-thread metadata.
+  - `GET /trigger?key=...` manually triggers a publish cycle (useful locally since cron doesn’t run in `wrangler dev`).
+  - `GET /trigger-daily?key=...` runs the daily maintenance job.
 
 ## Setup
 
@@ -28,10 +52,22 @@ cp wrangler.prod.template.jsonc wrangler.prod.jsonc
 Then edit both `.env`, `wrangler.dev.jsonc` and `wrangler.prod.jsonc` with your specific values:
 
 - **SLACK_TOKEN**: Your Slack bot token
-- **DEBUG_KEY**: A secret key for accessing debug endpoints
+- **DEBUG_KEY**: A secret key for accessing worker endpoints (debug/trigger and webhook ingestion)
 - **SLACK_CHANNEL**: Target Slack channel (e.g., `#ci`)
+- **DEFAULT_MASTER_BRANCH**: Default “master” branch name used for branch-specific behavior (e.g., `master` or `main`)
+- **PACTICIPANT_MASTER_BRANCH_EXCEPTIONS**: JSON map of pacticipant name -> master branch name for exceptions to the default
 - **GITHUB_BASE_URL**: Your GitHub organization URL
-- **PACTICIPANT_TO_REPO_MAP**: JSON mapping of service names to repository names
+- **PACTICIPANT_TO_REPO_MAP**: JSON mapping of Pact broker pacticipant names to Github repository names. For pacticipants with no entry, it is assumed that the repo name is found by converting PascalCase pacticipant names to dash-separated strings.
+
+#### Slack configuration
+
+Visit `https://api.slack.com/apps` and click on your application or create a new one.
+
+Go to OAuth & Permissions and make sure that you have the following bot token scopes (assuming your app is called "Pact Broker"):
+
+- `channels:history`: View messages and other content in public channels that "Pact Broker" has been added to
+- `chat:write` Send messages as @Pact Broker
+- `chat:write.public` Send messages to channels @Pact Broker isn't a member of
 
 ### 2. Secrets Management
 
