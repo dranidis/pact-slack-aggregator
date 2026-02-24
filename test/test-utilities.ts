@@ -1,5 +1,4 @@
 import { expect } from 'vitest';
-import { now } from '../src/time-utils';
 import type { PactEventData, ProviderVerificationPublishedPayload, ContractRequiringVerificationPublishedPayload } from '../src/types';
 import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from '../src/constants';
 import { getEventDataFromPayload } from '../src/payload-utils';
@@ -12,18 +11,17 @@ let auto_id = 0;
  * @param baseTime - The base time to compare against (defaults to current time)
  * @param toleranceMs - The tolerance in milliseconds (defaults to 100ms)
  */
-export function expectTimestampToBeRecent(timestampString: string, baseTime?: number, toleranceMs = 100): void {
-	const referenceTime = baseTime ?? now();
+export function expectTimestampToBeRecent(timestampString: string, baseTime: number, toleranceMs = 100): void {
 	const timestamp = Date.parse(timestampString);
-	expect(timestamp).toBeGreaterThanOrEqual(referenceTime);
-	expect(timestamp).toBeLessThan(referenceTime + toleranceMs);
+	expect(timestamp).toBeGreaterThanOrEqual(baseTime);
+	expect(timestamp).toBeLessThan(baseTime + toleranceMs);
 }
 
 /**
  * Create a unique test ID for Durable Object testing to avoid state persistence
  * @param prefix - Optional prefix for the ID
  */
-export function createUniqueTestId(prefix = 'test') {
+export function createUniqueTestId(prefix: string) {
 	return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 /**
@@ -45,7 +43,7 @@ export function makeContractPublicationEventData(overrides: Partial<ContractRequ
  * Factory for raw ProviderVerificationPublishedPayload with overrides (for webhook testing)
  */
 export function makeProviderVerificationPayload(
-	overrides: Partial<ProviderVerificationPublishedPayload> = {}
+	overrides: Partial<ProviderVerificationPublishedPayload> = {},
 ): ProviderVerificationPublishedPayload {
 	return { ...createProviderVerificationPayload(), ...overrides };
 }
@@ -54,7 +52,7 @@ export function makeProviderVerificationPayload(
  * Factory for raw ContractRequiringVerificationPublishedPayload with overrides (for webhook testing)
  */
 export function makeContractPublicationPayload(
-	overrides: Partial<ContractRequiringVerificationPublishedPayload> = {}
+	overrides: Partial<ContractRequiringVerificationPublishedPayload>,
 ): ContractRequiringVerificationPublishedPayload {
 	return { ...createContractPublicationPayload(), ...overrides };
 }

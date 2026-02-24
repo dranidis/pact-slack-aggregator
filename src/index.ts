@@ -15,7 +15,12 @@ import {
 	getPublicationSummaryForPayload,
 } from './messages';
 import { postPacticipantEventsToSlack, slackPost, slackUpdate, slackFetchThreadReplyCount } from './slack';
-import { DEPRECATION_NOTICE, THREAD_REMOVAL_NOTICE, THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE } from './constants';
+import {
+	DEPRECATION_NOTICE,
+	THREAD_REMOVAL_NOTICE,
+	THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE,
+	PROVIDER_VERIFICATION_PUBLISHED,
+} from './constants';
 import { coerceInt, isMasterBranch } from './utils';
 export { PactAggregator } from './pact-aggregator';
 
@@ -165,7 +170,7 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 	}
 
 	// If this is a verification result, post in the thread
-	if (rawPayload.eventType === 'provider_verification_published') {
+	if (rawPayload.eventType === PROVIDER_VERIFICATION_PUBLISHED) {
 		const ver = rawPayload;
 		console.log(`Posting verification result to channel ${providerSlackChannel} in thread ${threadTs}`);
 		threadTs = await rotatePublicationThreadIfNeeded(ver, providerSlackChannel, env, threadTs);

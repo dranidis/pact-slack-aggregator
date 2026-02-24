@@ -1,5 +1,4 @@
 import { PROVIDER_VERIFICATION_PUBLISHED, CONTRACT_REQUIRING_VERIFICATION_PUBLISHED } from './constants';
-// ...existing code...
 
 export interface BasePactWebhookPayload {
 	eventType: typeof PROVIDER_VERIFICATION_PUBLISHED | typeof CONTRACT_REQUIRING_VERIFICATION_PUBLISHED;
@@ -28,12 +27,12 @@ export interface ContractRequiringVerificationPublishedPayload extends BasePactW
 
 export type PactWebhookPayload = ProviderVerificationPublishedPayload | ContractRequiringVerificationPublishedPayload;
 
-export interface ProviderVerificationEventData extends ProviderVerificationPublishedPayload {
+interface ProviderVerificationEventData extends ProviderVerificationPublishedPayload {
 	pacticipant: string;
 	pacticipantVersionNumber: string;
 }
 
-export interface ContractRequiringVerificationEventData extends ContractRequiringVerificationPublishedPayload {
+interface ContractRequiringVerificationEventData extends ContractRequiringVerificationPublishedPayload {
 	pacticipant: string;
 	pacticipantVersionNumber: string;
 }
@@ -65,7 +64,7 @@ export interface PublicationThreadInfo {
 	// Legacy field kept for backward compatibility (existing stored entries before refactor)
 }
 
-export interface SlackConversationReplyMessage {
+interface SlackConversationReplyMessage {
 	ts: string;
 	thread_ts?: string;
 	reply_count?: number;
