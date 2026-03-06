@@ -37,6 +37,9 @@ export class PactAggregator extends DurableObject<Env> {
 	/**
 	 * Peek events that are eligible for publishing without deleting them.
 	 * Caller must invoke ackPublishedBuckets() after successful publication.
+	 * Note that this method DOES HAVE SIDE EFFECTS:
+	 * It consolidates events (moves events from older buckets to the current bucket) before selection,
+	 * so the returned events may include recently added ones that were consolidated into an older bucket.
 	 */
 	async peekEventsToPublish(): Promise<{ events: StoredPactEventData[]; bucketsToDelete: string[] }> {
 		const currentTime = now();
@@ -434,9 +437,11 @@ export class PactAggregator extends DurableObject<Env> {
 			}
 		}
 
-		this.moveEvents(eventsToMove, currentBucketKey, allEvents);
-
-		await this.setEvents(allEvents);
+		if (eventsToMove.length > 0) {
+			console.log(`Moving ${eventsToMove.length} events to current bucket ${currentBucketKey}`);
+			this.moveEvents(eventsToMove, currentBucketKey, allEvents);
+			await this.setEvents(allEvents);
+		}
 	}
 
 	private moveEvents(
@@ -444,10 +449,6 @@ export class PactAggregator extends DurableObject<Env> {
 		currentBucketKey: string,
 		allEvents: Map<string, StoredPactEventData[]>,
 	) {
-		if (eventsToMove.length > 0) {
-			console.log(`Moving ${eventsToMove.length} events to current bucket ${currentBucketKey}`);
-		}
-
 		// Move the collected events to the current bucket
 		for (const { eventToMove, fromBucket } of eventsToMove) {
 			// Remove from original bucket
