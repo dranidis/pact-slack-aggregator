@@ -237,7 +237,16 @@ async function rotatePublicationThreadIfNeeded(
 
 	const oldThreadTs = threadTs;
 	const originalPayload = (await aggregatorStub.getPublicationPayload(ver, providerSlackChannel)) ?? ver;
-	const summaryText = getPublicationSummaryForPayload(originalPayload, env);
+	const baseSummaryText = getPublicationSummaryForPayload(originalPayload, env);
+	const lastMasterVerificationInfo = await aggregatorStub.getPublicationThreadLastMasterVerificationInfo(ver, providerSlackChannel);
+	const summaryText = lastMasterVerificationInfo.verification
+		? appendVerificationStatusToProviderPublicationSummary(
+				baseSummaryText,
+				lastMasterVerificationInfo.verification,
+				env,
+				lastMasterVerificationInfo.verifiedAt,
+			)
+		: baseSummaryText;
 	const discontinuationNotice = `${THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE}`;
 
 	// Close the old thread (update root message in place)
@@ -279,6 +288,8 @@ async function updateProviderThreadSummaryForMasterBranch(
 	threadTs: string,
 ) {
 	const aggregatorStub = getPactAggregatorStub(env);
+	const verifiedAt = now();
+	await aggregatorStub.setPublicationThreadLastMasterVerification(ver, providerSlackChannel, verifiedAt);
 
 	const originalPayload = await aggregatorStub.getPublicationPayload(ver, providerSlackChannel);
 	const originalSummary = originalPayload ? getPublicationSummaryForPayload(originalPayload, env) : '';
@@ -286,6 +297,7 @@ async function updateProviderThreadSummaryForMasterBranch(
 		originalSummary || `Verification results for *${ver.consumerName}*`,
 		ver,
 		env,
+		verifiedAt,
 	);
 	const channelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
 	if (!channelId) {

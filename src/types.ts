@@ -61,6 +61,15 @@ export interface PublicationThreadInfo {
 	channelId: string; // Slack channel Id
 	// Store the original webhook payload that created the root message so we can derive summary text later
 	payload: PactWebhookPayload;
+	/**
+	 * Latest provider-master-branch verification for this contract thread.
+	 * Used to keep the root summary status line stable across thread rotations.
+	 */
+	lastMasterVerification?: ProviderVerificationPublishedPayload;
+	/**
+	 * Timestamp (ms since epoch) when lastMasterVerification was recorded.
+	 */
+	lastMasterVerificationAt?: number;
 	// Legacy field kept for backward compatibility (existing stored entries before refactor)
 }
 

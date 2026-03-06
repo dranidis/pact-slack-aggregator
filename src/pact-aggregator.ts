@@ -7,6 +7,7 @@ import type {
 	PublicationThreadInfo,
 	PublicationThreadEntry,
 	PactWebhookPayload,
+	ProviderVerificationPublishedPayload,
 	ContractRequiringVerificationPublishedPayload,
 } from './types';
 import { getPactVersionFromPayload } from './payload-utils';
@@ -166,6 +167,8 @@ export class PactAggregator extends DurableObject<Env> {
 			updatedTs: currentTimeString,
 			createdTs: existing?.createdTs ?? currentTimeString,
 			replyCount: existing?.replyCount ?? 0,
+			lastMasterVerification: existing?.lastMasterVerification,
+			lastMasterVerificationAt: existing?.lastMasterVerificationAt,
 		};
 
 		const deprecatedCandidates =
@@ -293,6 +296,34 @@ export class PactAggregator extends DurableObject<Env> {
 		return threads[key]?.replyCount;
 	}
 
+	async getPublicationThreadLastMasterVerificationInfo(
+		pub: PactWebhookPayload,
+		channel: string,
+	): Promise<{ verification?: ProviderVerificationPublishedPayload; verifiedAt?: number }> {
+		const key = this.makeKeyForPublicationThread(pub, channel);
+		const threads = await this.getAllPublicationThreads();
+		const entry = threads[key];
+		return {
+			verification: entry?.lastMasterVerification,
+			verifiedAt: entry?.lastMasterVerificationAt,
+		};
+	}
+
+	async setPublicationThreadLastMasterVerification(
+		ver: ProviderVerificationPublishedPayload,
+		channel: string,
+		verifiedAt: number,
+	): Promise<void> {
+		const key = this.makeKeyForPublicationThread(ver, channel);
+		const threads = await this.getAllPublicationThreads();
+		const info = threads[key];
+		if (!info) return;
+		info.lastMasterVerification = ver;
+		info.lastMasterVerificationAt = verifiedAt;
+		info.updatedTs = verifiedAt.toString();
+		await this.ctx.storage.put('publicationThreads', threads);
+	}
+
 	async setPublicationThreadReplyCount(pub: PactWebhookPayload, channel: string, replyCount: number): Promise<void> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads = await this.getAllPublicationThreads();
@@ -320,6 +351,8 @@ export class PactAggregator extends DurableObject<Env> {
 			ts: newThreadTs,
 			channelId,
 			payload: existing.payload,
+			lastMasterVerification: existing.lastMasterVerification,
+			lastMasterVerificationAt: existing.lastMasterVerificationAt,
 			createdTs: currentTimeString,
 			updatedTs: currentTimeString,
 			replyCount: 0,
