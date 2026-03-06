@@ -1103,6 +1103,77 @@ describe('Provider channel messages', () => {
 		resetTime();
 	});
 
+	it('should preserve last master verification status when rotating provider thread due to size (even if rotation is triggered by non-master verification)', async () => {
+		try {
+			const providerName = 'ProviderChannelService';
+			const consumerName = 'ConsumerChannelClient';
+			const providerChannel = `${env.PROVIDER_CHANNEL_PREFIX}${providerName}`;
+			const publicationPayload = makeContractPublicationPayload({ providerName, consumerName });
+
+			const t0 = 1000000000000;
+			mockTime(() => t0);
+			await sendEvent(publicationPayload);
+
+			const masterVerificationPayload = makeProviderVerificationPayload({
+				providerName,
+				consumerName,
+				providerVersionBranch: 'master',
+				verificationResultUrl: 'https://example.com/pact-version/PACT-VERSION/verification-results/111',
+			});
+			const t1 = t0 + 1000;
+			mockTime(() => t1);
+			await sendEvent(masterVerificationPayload);
+
+			// Force replyCount to the threshold so rotation happens on the next verification.
+			const stub = env.PACT_AGGREGATOR.get(env.PACT_AGGREGATOR.idFromName(env.PACT_AGGREGATOR_NAME));
+			await stub.setPublicationThreadReplyCount(publicationPayload, providerChannel, 2);
+
+			const nonMasterVerificationPayload = makeProviderVerificationPayload({
+				providerName,
+				consumerName,
+				providerVersionBranch: 'develop',
+				verificationResultUrl: 'https://example.com/pact-version/PACT-VERSION/verification-results/222',
+			});
+			const t2 = t1 + 1000;
+			mockTime(() => t2);
+			await sendEventWithEnvOverride(nonMasterVerificationPayload, { MAX_MESSAGES_PER_PACT_IN_THREAD: 2 });
+
+			const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+			const calls = fetchMock.mock.calls;
+
+			const updateCalls = calls.filter(([u]) => (u as string).includes('chat.update'));
+			// At minimum: one update for master status + one update to close the old thread during rotation.
+			expect(updateCalls.length).toBeGreaterThanOrEqual(2);
+
+			const rotationCloseUpdateCall = updateCalls.find(([, init]) => {
+				const body = JSON.parse((init as { body: string }).body) as SlackUpdateMessageRequest;
+				return body.text.includes(THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE);
+			});
+			expect(rotationCloseUpdateCall).toBeDefined();
+			const rotationCloseUpdateBody = JSON.parse((rotationCloseUpdateCall![1] as { body: string }).body) as SlackUpdateMessageRequest;
+			expect(rotationCloseUpdateBody.text).toContain(THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE);
+			// Regression expectation: old root summary should still include the last master verification result.
+			expect(rotationCloseUpdateBody.text).toContain('Last verification on');
+			expect(rotationCloseUpdateBody.text).toContain('master');
+			expect(rotationCloseUpdateBody.text).toContain(masterVerificationPayload.verificationResultUrl);
+
+			const postCalls = calls.filter(([u]) => (u as string).includes('chat.postMessage'));
+			expect(postCalls.length).toBeGreaterThanOrEqual(4);
+			const postBodies = postCalls.map(([, init]) => JSON.parse((init as { body: string }).body) as SlackPostMessageRequest);
+
+			const providerRootPosts = postBodies.filter((b) => b.channel === providerChannel && b.thread_ts === undefined);
+			expect(providerRootPosts.length).toBeGreaterThanOrEqual(2);
+			const rotatedRoot = providerRootPosts[providerRootPosts.length - 1]!;
+			expect(rotatedRoot.text).toContain('Contract');
+			// Regression expectation: rotated root summary should still include the last master verification result.
+			expect(rotatedRoot.text).toContain('Last verification on');
+			expect(rotatedRoot.text).toContain('master');
+			expect(rotatedRoot.text).toContain(masterVerificationPayload.verificationResultUrl);
+		} finally {
+			resetTime();
+		}
+	});
+
 	it('should backfill replyCount from Slack when missing and then increment on reply', async () => {
 		const providerName = 'ProviderChannelService';
 		const consumerName = 'ConsumerChannelClient';
@@ -1344,6 +1415,7 @@ describe('Provider channel messages', () => {
 		expect(body.channel).toBe('CHANNEL_ID');
 		expect(body.ts).toBe(publicationMockTime.toString());
 		expect(body.text).toContain('Last verification on');
+		expect(body.text).toContain(new Date(verificationMockTime).toDateString());
 		expect(body.text).toContain('✅');
 		expect(body.text).toContain('master');
 		expect(body.text).toContain(verificationPayload.verificationResultUrl);
@@ -1358,6 +1430,7 @@ describe('Provider channel messages', () => {
 		expect(body.channel).toBe('CHANNEL_ID');
 		expect(body.ts).toBe(publicationMockTime.toString());
 		expect(body.text).toContain('Last verification on');
+		expect(body.text).toContain(new Date(verificationMockTime2).toDateString());
 		expect(body.text).toContain('😢');
 		expect(body.text).toContain('master');
 		expect(body.text).toContain(verificationPayload2.verificationResultUrl);

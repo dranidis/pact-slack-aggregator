@@ -146,13 +146,15 @@ export function appendVerificationStatusToProviderPublicationSummary(
 	originalSummary: string,
 	ver: ProviderVerificationPublishedPayload,
 	messageEnv: MessageEnv,
+	verifiedAt?: number,
 ) {
 	const statusEmoji = getEmoji(messageEnv, ver.githubVerificationStatus);
 	const { branchLink, githubLink } = createGithubLinks(messageEnv, ver.providerName, ver.providerVersionBranch, ver.providerVersionNumber);
+	const verifiedAtText = typeof verifiedAt === 'number' ? ` on ${new Date(verifiedAt).toDateString()}` : '';
 
 	// Keep original summary; add a blank line to separate if not already ending with newline
 	const prefix = originalSummary.endsWith('\n') ? '' : '\n';
-	return `${originalSummary}${prefix}Last verification on (${ver.providerName}) *${branchLink}*${githubLink}: ${statusEmoji} <${ver.verificationResultUrl}|Results>`;
+	return `${originalSummary}${prefix}Last verification on (${ver.providerName}) *${branchLink}*${githubLink}${verifiedAtText}: ${statusEmoji} <${ver.verificationResultUrl}|Results>`;
 }
 
 function createCommitLink(messageEnv: MessageEnv, repo: string, commitHash: string): string {
