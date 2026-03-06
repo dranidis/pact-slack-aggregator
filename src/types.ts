@@ -69,7 +69,7 @@ export interface PublicationThreadInfo {
 	/**
 	 * Timestamp (ms since epoch) when lastMasterVerification was recorded.
 	 */
-	lastMasterVerificationAt?: number;
+	lastMasterVerificationTs?: number;
 	// Legacy field kept for backward compatibility (existing stored entries before refactor)
 }
 

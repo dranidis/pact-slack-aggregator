@@ -383,7 +383,9 @@ describe('PactAggregator', () => {
 				verificationResultUrl: 'https://example.com/pacts/provider/API/consumer/Engine/pact-version/pactver123/verification-results/456',
 			});
 
-			const threadTs = await aggregator.getPublicationThreadTs(ver, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`);
+			const threadInfo = await aggregator.getPublicationThreadInfo(ver, `${env.PROVIDER_CHANNEL_PREFIX ?? '#pact-'}API`);
+			expect(threadInfo).toBeDefined();
+			const threadTs = threadInfo?.ts;
 			expect(threadTs).toBeDefined();
 		});
 

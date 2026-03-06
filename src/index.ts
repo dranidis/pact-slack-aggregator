@@ -156,7 +156,8 @@ async function postToProvidersChannel(rawPayload: PactWebhookPayload, env: Env) 
 	const aggregatorStub = getPactAggregatorStub(env);
 	const providerSlackChannel = getProviderSlackChannel(env, rawPayload);
 
-	let threadTs = await aggregatorStub.getPublicationThreadTs(rawPayload, providerSlackChannel);
+	const publicationThreadInfo = await aggregatorStub.getPublicationThreadInfo(rawPayload, providerSlackChannel);
+	let threadTs = publicationThreadInfo?.ts;
 
 	// A publication event will always have a new pact and the thread will not exist yet!
 	// A verification event may or may not have an existing thread for its pact
@@ -206,13 +207,15 @@ async function rotatePublicationThreadIfNeeded(
 	if (maxMessagesPerThread === 0) {
 		return threadTs; // Rotation disabled
 	}
-	const channelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
-	if (!channelId) {
-		console.error('Missing channel ID for thread counting/rotation; skipping rotation');
+
+	const publicationThreadInfo = await aggregatorStub.getPublicationThreadInfo(ver, providerSlackChannel);
+	if (!publicationThreadInfo) {
+		console.error('Missing publication thread info for rotation check; skipping rotation');
 		return threadTs;
 	}
 
-	let replyCount = await aggregatorStub.getPublicationThreadReplyCount(ver, providerSlackChannel);
+	const channelId = publicationThreadInfo.channelId;
+	let replyCount = publicationThreadInfo.replyCount;
 	if (replyCount === undefined) {
 		// Legacy entries: backfill from Slack once.
 		replyCount = await slackFetchThreadReplyCount(
@@ -236,15 +239,14 @@ async function rotatePublicationThreadIfNeeded(
 	);
 
 	const oldThreadTs = threadTs;
-	const originalPayload = (await aggregatorStub.getPublicationPayload(ver, providerSlackChannel)) ?? ver;
+	const originalPayload = publicationThreadInfo.payload ?? ver;
 	const baseSummaryText = getPublicationSummaryForPayload(originalPayload, env);
-	const lastMasterVerificationInfo = await aggregatorStub.getPublicationThreadLastMasterVerificationInfo(ver, providerSlackChannel);
-	const summaryText = lastMasterVerificationInfo.verification
+	const summaryText = publicationThreadInfo.lastMasterVerification
 		? appendVerificationStatusToProviderPublicationSummary(
 				baseSummaryText,
-				lastMasterVerificationInfo.verification,
+				publicationThreadInfo.lastMasterVerification,
 				env,
-				lastMasterVerificationInfo.verifiedAt,
+				publicationThreadInfo.lastMasterVerificationTs,
 			)
 		: baseSummaryText;
 	const discontinuationNotice = `${THREAD_DISCONTINUED_DUE_TO_SIZE_NOTICE}`;
@@ -291,7 +293,13 @@ async function updateProviderThreadSummaryForMasterBranch(
 	const verifiedAt = now();
 	await aggregatorStub.setPublicationThreadLastMasterVerification(ver, providerSlackChannel, verifiedAt);
 
-	const originalPayload = await aggregatorStub.getPublicationPayload(ver, providerSlackChannel);
+	const originalThreadInfo = await aggregatorStub.getPublicationThreadInfo(ver, providerSlackChannel);
+	if (!originalThreadInfo) {
+		console.error('Missing publication thread info for summary update; skipping update');
+		return;
+	}
+
+	const originalPayload = originalThreadInfo.payload;
 	const originalSummary = originalPayload ? getPublicationSummaryForPayload(originalPayload, env) : '';
 	const updatedSummary = appendVerificationStatusToProviderPublicationSummary(
 		originalSummary || `Verification results for *${ver.consumerName}*`,
@@ -299,19 +307,14 @@ async function updateProviderThreadSummaryForMasterBranch(
 		env,
 		verifiedAt,
 	);
-	const channelId = await aggregatorStub.getPublicationChannelId(ver, providerSlackChannel);
-	if (!channelId) {
-		console.error('Missing channel ID for update! ');
-	} else {
-		await slackUpdate(
-			{
-				SLACK_CHANNEL: channelId,
-				SLACK_TOKEN: env.SLACK_TOKEN,
-			},
-			threadTs,
-			updatedSummary,
-		);
-	}
+	await slackUpdate(
+		{
+			SLACK_CHANNEL: originalThreadInfo.channelId,
+			SLACK_TOKEN: env.SLACK_TOKEN,
+		},
+		threadTs,
+		updatedSummary,
+	);
 }
 
 /**

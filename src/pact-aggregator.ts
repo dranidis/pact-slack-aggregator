@@ -168,7 +168,7 @@ export class PactAggregator extends DurableObject<Env> {
 			createdTs: existing?.createdTs ?? currentTimeString,
 			replyCount: existing?.replyCount ?? 0,
 			lastMasterVerification: existing?.lastMasterVerification,
-			lastMasterVerificationAt: existing?.lastMasterVerificationAt,
+			lastMasterVerificationTs: existing?.lastMasterVerificationTs,
 		};
 
 		const deprecatedCandidates =
@@ -248,22 +248,6 @@ export class PactAggregator extends DurableObject<Env> {
 	}
 
 	/**
-	 * Returns the Slack thread timestamp ID for a given pact event and channel, if it exists.
-	 * This is used to post messages in the correct thread for pact publications and verifications.
-	 *
-	 * If the key (in the form of provider|consumer|version|channel) does not exist, returns undefined.
-	 *
-	 * @param ver PactWebhookPayload
-	 * @param channel string
-	 * @returns string | undefined
-	 */
-	async getPublicationThreadTs(ver: PactWebhookPayload, channel: string): Promise<string | undefined> {
-		const key = this.makeKeyForPublicationThread(ver, channel);
-		const threads = await this.getAllPublicationThreads();
-		return threads[key]?.ts;
-	}
-
-	/**
 	 * Updates the last updated timestamp and increments the reply count for a publication thread.
 	 */
 	async updatePublicationThread(pub: PactWebhookPayload, channel: string): Promise<void> {
@@ -278,35 +262,10 @@ export class PactAggregator extends DurableObject<Env> {
 		await this.ctx.storage.put('publicationThreads', threads);
 	}
 
-	async getPublicationPayload(pub: PactWebhookPayload, channel: string): Promise<PactWebhookPayload | undefined> {
+	async getPublicationThreadInfo(pub: PactWebhookPayload, channel: string): Promise<PublicationThreadInfo | undefined> {
 		const key = this.makeKeyForPublicationThread(pub, channel);
 		const threads = await this.getAllPublicationThreads();
-		return threads[key]?.payload;
-	}
-
-	async getPublicationChannelId(pub: PactWebhookPayload, channel: string): Promise<string | undefined> {
-		const key = this.makeKeyForPublicationThread(pub, channel);
-		const threads = await this.getAllPublicationThreads();
-		return threads[key]?.channelId;
-	}
-
-	async getPublicationThreadReplyCount(pub: PactWebhookPayload, channel: string): Promise<number | undefined> {
-		const key = this.makeKeyForPublicationThread(pub, channel);
-		const threads = await this.getAllPublicationThreads();
-		return threads[key]?.replyCount;
-	}
-
-	async getPublicationThreadLastMasterVerificationInfo(
-		pub: PactWebhookPayload,
-		channel: string,
-	): Promise<{ verification?: ProviderVerificationPublishedPayload; verifiedAt?: number }> {
-		const key = this.makeKeyForPublicationThread(pub, channel);
-		const threads = await this.getAllPublicationThreads();
-		const entry = threads[key];
-		return {
-			verification: entry?.lastMasterVerification,
-			verifiedAt: entry?.lastMasterVerificationAt,
-		};
+		return threads[key];
 	}
 
 	async setPublicationThreadLastMasterVerification(
@@ -319,7 +278,7 @@ export class PactAggregator extends DurableObject<Env> {
 		const info = threads[key];
 		if (!info) return;
 		info.lastMasterVerification = ver;
-		info.lastMasterVerificationAt = verifiedAt;
+		info.lastMasterVerificationTs = verifiedAt;
 		info.updatedTs = verifiedAt.toString();
 		await this.ctx.storage.put('publicationThreads', threads);
 	}
@@ -352,7 +311,7 @@ export class PactAggregator extends DurableObject<Env> {
 			channelId,
 			payload: existing.payload,
 			lastMasterVerification: existing.lastMasterVerification,
-			lastMasterVerificationAt: existing.lastMasterVerificationAt,
+			lastMasterVerificationTs: existing.lastMasterVerificationTs,
 			createdTs: currentTimeString,
 			updatedTs: currentTimeString,
 			replyCount: 0,
